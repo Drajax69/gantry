@@ -81,7 +81,7 @@ The default scopes, used when `scopes` is omitted:
 | `envFiles` | string[] | `[]` | Env files loaded in order, later files winning. Paths are relative to the repository checkout. |
 | `workDir` | string | `.` | Working directory relative to the repository checkout. |
 | `hooks.preStart` | command[] | `[]` | Run before spawn (120 s timeout each). |
-| `hooks.postStart` | command[] | `[]` | Declared for symmetry; not executed by the current supervisor. |
+| `hooks.postStart` | command[] | `[]` | Run after the service process is launched (not after readiness); failures are logged and do not stop the service. |
 | `platform.darwin` / `platform.win32` / `platform.linux` | object | unset | Per-OS `install` / `start` overrides. |
 | `banner.enabled` | boolean | `true` | Inject the local-preview banner (Vite runner only). |
 | `banner.autoLogin` | boolean | `false` | Attempt programmatic sign-in; requires an environment and a project-provided login module (see `entry`). |
