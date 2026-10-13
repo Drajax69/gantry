@@ -286,7 +286,7 @@ function TicketCard({ ticket, jobs, scopes, onEdit, onStart, onDelete, onStatus,
         {job ? <span>{job.phase ?? job.kind} · {job.progress}%</span> : null}
         {ticket.previewStatus ? <span>preview: {ticket.previewStatus}</span> : null}
       </div>
-      {job ? <div className="progress"><div style={{ width: `${job.progress}%` }} /></div> : null}
+      {job ? <div className="progress"><div style={{ transform: `scaleX(${Math.max(0, Math.min(100, job.progress)) / 100})` }} /></div> : null}
       {ticket.run?.error ? <p className="error">{ticket.run.error}</p> : null}
       <div className="links">
         {ticket.previewUrl ? <a href={ticket.previewUrl} target="_blank" rel="noreferrer">Open preview</a> : null}
