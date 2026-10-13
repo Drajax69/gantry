@@ -172,7 +172,7 @@ One engine (`packages/shared/src/config/vars.ts`) serves config values, hooks, h
 | `${repoDir}` | Directory name of the checkout (`env` values only) |
 | `${primaryDir}` | Directory name of the primary checkout, when known (`env` values only) |
 
-`${repoDir}` and `${primaryDir}` are added for `env` value interpolation only; commands and hooks see the variables above them. `healthUrl` is interpolated with only `${port}` when probed. `${env:NAME}` is part of the declared variable surface, but the interpolation engine does not read process environment: referencing it produces a `VarError` that suggests setting the variable in the environment or adding it to a private env file. That is deliberate — configuration stays free of machine-specific values, and secrets stay out of `gantry.yaml`.
+`${repoDir}` and `${primaryDir}` are added for `env` value interpolation only; commands and hooks see the variables above them. `healthUrl` is interpolated with only `${port}` when probed. `${env:NAME}` resolves from the server's process environment; a missing or empty value raises a `VarError` that names the variable. Prefer private env files over `env:` references in committed configuration so machine-specific values and secrets stay out of `gantry.yaml`.
 
 ## Secret handling rules
 
