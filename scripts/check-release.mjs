@@ -64,6 +64,8 @@ async function scan(dir) {
     for (const [pattern, label] of PATH_PATTERNS) {
       if (pattern.test(content)) {
         if (label === 'private workspace name' && PAPER_SETTER_ALLOWED.test(rel)) continue;
+        // This script carries its own detection sentinels.
+        if (rel === 'scripts/check-release.mjs') continue;
         failures.push(`${rel}: ${label}`);
       }
     }
