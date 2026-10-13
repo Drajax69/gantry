@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+        node: ['22.x', '24.x']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The suite creates real temporary Git repositories, so Git needs an
+      # identity to commit with.
+      - name: Configure Git for tests
+        run: |
+          git config --global user.email "ci@example.invalid"
+          git config --global user.name "Gantry CI"
+          git config --global init.defaultBranch main
+          git config --global commit.gpgsign false
+
+      - name: Typecheck
+        run: npx tsc -b packages/shared packages/server packages/cli && npx tsc --noEmit -p packages/ui
+
+      # Non-blocking while the ESLint configuration settles; run it locally.
+      - name: Lint
+        continue-on-error: true
+        run: npx eslint packages scripts
+
+      - name: Test
+        run: npx vitest run
+
+  ui-build:
+    name: Build dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build @gantry/ui
+        run: npm run build --workspace @gantry/ui
+
+      - name: Upload dashboard build
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-${{ github.sha }}
+          path: packages/ui/dist
+          retention-days: 7
+          if-no-files-found: error
+
+  release:
+    name: Pack and verify release
+    runs-on: macos-latest
+    needs: [test, ui-build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          cache: npm
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "ci@example.invalid"
+          git config --global user.name "Gantry CI"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # release:pack runs the full build itself.
+      - name: Pack release archive
+        run: npm run release:pack
+
+      - name: Verify release archive
+        run: npm run release:verify
+
+      - name: Compute checksums
+        run: |
+          cd dist
+          shasum -a 256 *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: gantry-${{ github.ref_name }}
+          path: dist
+          retention-days: 30
+          if-no-files-found: error

@@ -1,0 +1,178 @@
+import { newId, isValidBranchName, branchFor } from '@gantry/shared';
+import type { Database } from '../db/db.js';
+
+/**
+ * Ticket store: a local work queue per project. Branches come from ticket
+ * titles (untrusted) and are validated with Git's own ref rules before any
+ * worktree is created. `active_run_id` is the atomic start lock: at most one
+ * agent run can be attached to a ticket at a time, enforced by a partial
+ * UNIQUE index so even a race between two queued jobs cannot double-start.
+ */
+
+export interface TicketRow {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string;
+  status: 'backlog' | 'in_progress' | 'done';
+  scope: string;
+  branch: string;
+  additions: string | null;
+  position: number;
+  active_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const TICKET_TITLE_MAX = 140;
+export const TICKET_DESCRIPTION_MAX = 5000;
+
+export class TicketError extends Error {}
+
+export interface TicketInput {
+  title: string;
+  description?: string;
+  status?: string;
+  scope?: string;
+  branch?: string;
+  additions?: string | null;
+}
+
+export function validateTicketInput(
+  input: TicketInput,
+  previous?: TicketRow,
+  branchPrefix = 'ticket',
+): { title: string; description: string; status: TicketRow['status']; scope: string; branch: string; additions: string | null } {
+  const title = String(input.title ?? previous?.title ?? '').trim();
+  if (!title) throw new TicketError('Title is required.');
+  if (title.length > TICKET_TITLE_MAX) throw new TicketError(`Title must be ${TICKET_TITLE_MAX} characters or fewer.`);
+  const description = String(input.description ?? previous?.description ?? '').trim();
+  if (description.length > TICKET_DESCRIPTION_MAX) throw new TicketError(`Notes must be ${TICKET_DESCRIPTION_MAX} characters or fewer.`);
+  const status = (input.status ?? previous?.status ?? 'backlog') as TicketRow['status'];
+  if (!['backlog', 'in_progress', 'done'].includes(status)) throw new TicketError('Unknown ticket status.');
+  const scope = input.scope ?? previous?.scope ?? 'both';
+  let branch = input.branch ?? previous?.branch;
+  if (branch === undefined || branch === '') branch = branchFor(title, branchPrefix);
+  branch = String(branch).trim();
+  if (!isValidBranchName(branch)) throw new TicketError('Branch contains characters Git cannot use.');
+  if (previous && previous.active_run_id && branch !== previous.branch) {
+    throw new TicketError('The branch cannot change after agent work has started.');
+  }
+  return { title, description, status, scope, branch, additions: input.additions ?? previous?.additions ?? null };
+}
+
+export class TicketStore {
+  constructor(private readonly db: Database) {}
+
+  all(projectId: string): TicketRow[] {
+    return this.db.prepare('SELECT * FROM tickets WHERE project_id=? ORDER BY status, position, created_at').all(projectId) as unknown as TicketRow[];
+  }
+
+  get(id: string): TicketRow | null {
+    return (this.db.prepare('SELECT * FROM tickets WHERE id=?').get(id) as TicketRow | undefined) ?? null;
+  }
+
+  create(projectId: string, input: TicketInput, scopes: string[], branchPrefix: string): TicketRow {
+    const validated = validateTicketInput(input, undefined, branchPrefix);
+    if (scopes.length && !scopes.includes(validated.scope)) throw new TicketError(`Unknown ticket scope "${validated.scope}".`);
+    const now = new Date().toISOString();
+    const ticket: TicketRow = {
+      id: newId(),
+      project_id: projectId,
+      ...validated,
+      position: 0,
+      active_run_id: null,
+      created_at: now,
+      updated_at: now,
+    };
+    // New tickets go to the TOP of their column (matching the legacy board):
+    // take position 0 and shift the rest down.
+    this.db
+      .prepare(
+        `INSERT INTO tickets (id, project_id, title, description, status, scope, branch, additions, position, active_run_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(ticket.id, ticket.project_id, ticket.title, ticket.description, ticket.status, ticket.scope, ticket.branch, ticket.additions, ticket.position, null, ticket.created_at, ticket.updated_at);
+    this.db.prepare('UPDATE tickets SET position = position + 1 WHERE project_id=? AND status=? AND id != ?').run(projectId, ticket.status, ticket.id);
+    return this.get(ticket.id)!;
+  }
+
+  update(id: string, input: TicketInput, scopes: string[], branchPrefix: string): TicketRow {
+    const previous = this.get(id);
+    if (!previous) throw new TicketError('Ticket not found.');
+    const validated = validateTicketInput(input, previous, branchPrefix);
+    if (scopes.length && !scopes.includes(validated.scope)) throw new TicketError(`Unknown ticket scope "${validated.scope}".`);
+    const statusChanged = validated.status !== previous.status;
+    this.db
+      .prepare('UPDATE tickets SET title=?, description=?, status=?, scope=?, branch=?, additions=?, updated_at=? WHERE id=?')
+      .run(validated.title, validated.description, validated.status, validated.scope, validated.branch, validated.additions, new Date().toISOString(), id);
+    if (statusChanged) {
+      const maxPosition = (this.db.prepare('SELECT COALESCE(MAX(position), -1) AS p FROM tickets WHERE project_id=? AND status=?').get(previous.project_id, validated.status) as { p: number }).p;
+      this.db.prepare('UPDATE tickets SET position=? WHERE id=?').run(Number(maxPosition) + 1, id);
+    }
+    return this.get(id)!;
+  }
+
+  patch(id: string, values: Partial<Pick<TicketRow, 'status' | 'active_run_id' | 'additions'>>): TicketRow {
+    const previous = this.get(id);
+    if (!previous) throw new TicketError('Ticket not found.');
+    this.db
+      .prepare('UPDATE tickets SET status=COALESCE(?, status), active_run_id=COALESCE(?, active_run_id), additions=COALESCE(?, additions), updated_at=? WHERE id=?')
+      .run(values.status ?? null, values.active_run_id ?? null, values.additions ?? null, new Date().toISOString(), id);
+    return this.get(id)!;
+  }
+
+  remove(id: string): void {
+    const result = this.db.prepare('DELETE FROM tickets WHERE id=?').run(id);
+    if (Number(result.changes) === 0) throw new TicketError('Ticket not found.');
+  }
+
+  /** Reorder one status column. The submitted order must be complete and current. */
+  reorder(projectId: string, status: string, ticketIds: string[]): TicketRow[] {
+    if (!['backlog', 'in_progress', 'done'].includes(status)) throw new TicketError('Unknown ticket status.');
+    if (!Array.isArray(ticketIds) || ticketIds.some((id) => typeof id !== 'string')) throw new TicketError('Ticket order must be a list of ticket IDs.');
+    const column = this.db.prepare('SELECT id FROM tickets WHERE project_id=? AND status=?').all(projectId, status) as { id: string }[];
+    const current = column.map((row) => row.id);
+    if (ticketIds.length !== current.length || new Set(ticketIds).size !== ticketIds.length || current.some((id) => !ticketIds.includes(id))) {
+      throw new TicketError('Ticket order no longer matches this column. Refresh and try again.');
+    }
+    const tx = this.db;
+    tx.exec('BEGIN IMMEDIATE');
+    try {
+      ticketIds.forEach((id, index) => {
+        tx.prepare('UPDATE tickets SET position=? WHERE id=?').run(index, id);
+      });
+      tx.exec('COMMIT');
+    } catch (error) {
+      tx.exec('ROLLBACK');
+      throw error;
+    }
+    return this.all(projectId).filter((ticket) => ticket.status === status);
+  }
+
+  /** Atomically attach a run to a ticket. Returns false when a run is already active. */
+  claimRun(ticketId: string, runId: string): boolean {
+    const result = this.db
+      .prepare('UPDATE tickets SET active_run_id=?, updated_at=? WHERE id=? AND active_run_id IS NULL')
+      .run(runId, new Date().toISOString(), ticketId);
+    return Number(result.changes) === 1;
+  }
+
+  releaseRun(ticketId: string, runId: string): void {
+    this.db.prepare('UPDATE tickets SET active_run_id=NULL, updated_at=? WHERE id=? AND active_run_id=?').run(new Date().toISOString(), ticketId, runId);
+  }
+
+  /** Move tickets to Done once their branches are confirmed merged. */
+  completeMergedBranches(projectId: string, branches: Set<string>): TicketRow[] {
+    if (!branches.size) return [];
+    const now = new Date().toISOString();
+    const tickets = this.db.prepare("SELECT * FROM tickets WHERE project_id=? AND status != 'done'").all(projectId) as unknown as TicketRow[];
+    const completed: TicketRow[] = [];
+    for (const ticket of tickets) {
+      if (!branches.has(ticket.branch)) continue;
+      this.db.prepare("UPDATE tickets SET status='done', updated_at=? WHERE id=?").run(now, ticket.id);
+      completed.push({ ...ticket, status: 'done' });
+    }
+    return completed;
+  }
+}

@@ -1,0 +1,92 @@
+# Minimal Gantry workspace: two repositories, two services started with plain
+# shell commands, one environment whose private env files live under .local/.
+#
+# Layout expected next to this file:
+#   frontend/                     (a Git repository)
+#   backend/                      (a Git repository)
+#   .local/environments/staging/frontend.env    (private, never committed)
+#   .local/environments/staging/backend.env     (private, never committed)
+
+apiVersion: gantry.dev/v1
+
+project:
+  id: my-project
+  name: My Project
+  defaultAgent: codex
+  defaultPromptTemplate: builtin:default
+  branchPrefix: ticket
+  worktreeRoot: .worktrees
+  portBase: 5200
+  portRange: 1000
+  workspaceInstructions: [AGENTS.md, CLAUDE.md]
+
+repositories:
+  - id: frontend
+    path: frontend
+    remote: origin
+    defaultBranch: main
+    worktree: true
+    required: true
+    role: product
+    instructions: [AGENTS.md, CLAUDE.md]
+  - id: backend
+    path: backend
+    remote: origin
+    defaultBranch: main
+    worktree: true
+    required: true
+    role: product
+    instructions: [AGENTS.md, CLAUDE.md]
+
+services:
+  - id: frontend
+    repository: frontend
+    runtime: command
+    install: npm ci --no-audit --no-fund
+    start: npm run dev -- --host 127.0.0.1 --port ${port}
+    healthUrl: http://127.0.0.1:${port}/
+    openUrl: http://127.0.0.1:${port}/
+    dependsOn: [backend]
+    env: {}
+    envFiles: [.env, .env.local]
+    workDir: .
+    hooks:
+      preStart: []
+      postStart: []
+    platform: {}
+    banner:
+      enabled: false
+
+  - id: backend
+    repository: backend
+    runtime: command
+    install: npm ci --no-audit --no-fund
+    start: node server.mjs
+    healthUrl: http://127.0.0.1:${port}/health
+    openUrl: http://127.0.0.1:${port}/
+    dependsOn: []
+    env:
+      PORT: ${port}
+    envFiles: [.env, .env.local]
+    workDir: .
+    hooks:
+      preStart: []
+      postStart: []
+    platform: {}
+
+environments:
+  - id: staging
+    label: Staging
+    default: true
+    envFiles:
+      frontend: .local/environments/staging/frontend.env
+      backend: .local/environments/staging/backend.env
+    env: {}
+    requireKeys:
+      backend: [DATABASE_URL]
+
+agents: []
+
+safety:
+  testRecordPrefix: TEST_
+  manualTestFile: manual-test-needed.md

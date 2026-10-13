@@ -1,0 +1,14 @@
+{
+  "name": "@gantry/cli",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "gantry": "./bin/gantry.js"
+  },
+  "dependencies": {
+    "@gantry/server": "*",
+    "tsx": "^4.19.0"
+  }
+}

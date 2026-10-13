@@ -1,0 +1,14 @@
+# Replace the placeholder repository slug below with this project's real slug
+# (and enable Discussions) before publishing.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/gantry/gantry/discussions
+    about: Ask how Gantry fits your workspace before filing an issue.
+  - name: Security vulnerability
+    url: https://github.com/gantry/gantry/security/advisories/new
+    about: Report privately. Please do not open a public issue for a security problem.
+  - name: Documentation
+    url: https://github.com/gantry/gantry/tree/main/docs
+    about: Architecture, configuration reference, security model, migration guide, and FAQ.
