@@ -265,15 +265,27 @@ export class Supervisor {
     return config.environments.find((env) => env.id === id) ?? null;
   }
 
+  private dependencyVars(previewId: string, service: ServiceConfig): Record<string, string> {
+    const vars: Record<string, string> = {};
+    for (const id of service.dependsOn) {
+      const port = this.serviceRow(previewId, id)?.port;
+      if (!port) continue;
+      vars[`port.${id}`] = String(port);
+      vars[`origin.${id}`] = `http://127.0.0.1:${port}`;
+    }
+    return vars;
+  }
+
   private async serviceSignature(
     project: LoadedProject,
+    previewId: string,
     checkoutPath: string,
     service: ServiceConfig,
     port: number,
     environment: EnvironmentConfig | null,
   ): Promise<string> {
     const hash = createHash('sha256');
-    hash.update(JSON.stringify({ service, port, environment: environment?.id ?? null }));
+    hash.update(JSON.stringify({ service, port, environment, dependencies: this.dependencyVars(previewId, service) }));
     const repoPath = path.resolve(project.workspace, project.config.repositories.find((repo) => repo.id === service.repository)?.path ?? '.');
     for (const dir of new Set([checkoutPath, repoPath])) {
       for (const file of service.envFiles) {
@@ -308,7 +320,7 @@ export class Supervisor {
     // look "occupied", causing a reallocation, a signature change, and an
     // endless restart loop.
     if (row?.port && row.pid && row.pgid !== null && row.pid_claim && (await ownsProcess(row.pid, row.pgid, row.pid_claim))) {
-      const signatureAtCurrentPort = await this.serviceSignature(project, checkout.path, service, row.port, environment);
+      const signatureAtCurrentPort = await this.serviceSignature(project, preview.id, checkout.path, service, row.port, environment);
       if (row.signature === signatureAtCurrentPort) return;
     }
 
@@ -320,7 +332,7 @@ export class Supervisor {
       return;
     }
 
-    const signature = await this.serviceSignature(project, checkout.path, service, port, environment);
+    const signature = await this.serviceSignature(project, preview.id, checkout.path, service, port, environment);
 
     // Exited moments after starting: back off instead of thrashing.
     if (row?.retry_after && Date.parse(row.retry_after) > Date.now()) return;
@@ -410,6 +422,7 @@ export class Supervisor {
     await fsp.mkdir(path.dirname(logFile), { recursive: true, mode: 0o700 });
     await rotateLog(logFile);
     const vars: Record<string, string> = {
+      ...this.dependencyVars(preview.id, service),
       workspace: project.workspace,
       'project.id': project.config.project.id,
       branch: preview.branch,

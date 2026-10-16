@@ -164,6 +164,7 @@ One engine (`packages/shared/src/config/vars.ts`) serves config values, hooks, h
 | Variable | Value |
 | -------- | ----- |
 | `${port}` | Allocated port for this service |
+| `${port.<id>}`, `${origin.<id>}` | Allocated port and loopback HTTP origin of a declared dependency |
 | `${workspace}` | Workspace root |
 | `${branch}` | Preview branch (`__primary__` for the main workspace) |
 | `${project.id}` | Project id |
@@ -334,3 +335,19 @@ With this config, starting a ticket titled "Add promo banners" creates `ticket/a
 | `GANTRY_REMOTE_INTERVAL_MS` | `120000` | Remote sync cadence. |
 | `GANTRY_TAKEOVER_GRACE_MS` | `4000` | SIGTERM grace before SIGKILL on takeover. |
 | `GANTRY_SERVICE_READY_TIMEOUT_MS` | `120000` | Before a starting service is marked failed. |
+
+### Connecting services within a preview
+
+Declare upstream services in `dependsOn`, then reference their allocated ports in service `env` values. Gantry supplies `${origin.<id>}` (the loopback HTTP origin without a path) and `${port.<id>}` for declared dependencies. These values override env files, and changes to dependency ports restart the consuming service.
+
+```yaml
+services:
+  - id: frontend
+    repository: frontend
+    runtime: vite
+    dependsOn: [backend]
+    env:
+      VITE_BACKEND_URL: ${origin.backend}
+```
+
+Use the variable name your application reads; Gantry does not assume a frontend framework or API setting. `dependsOn` alone controls startup order, not application URLs.

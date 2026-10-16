@@ -31,7 +31,7 @@ const role = process.env.ROLE ?? 'unknown';
 const server = http.createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ role, port, ok: true }));
+    res.end(JSON.stringify({ role, port, ok: true, backend: process.env.BACKEND_URL }));
     return;
   }
   res.writeHead(404).end();
@@ -132,6 +132,8 @@ async function createFixtureWorkspace(): Promise<{ workspace: string; dataDir: s
       '    healthUrl: http://127.0.0.1:${port}/health',
       '    env:',
       '      ROLE: frontend',
+      '      BACKEND_URL: ${origin.backend}',
+      '    dependsOn: [backend]',
       '  - id: backend',
       '    repository: backend',
       '    runtime: node',
@@ -164,7 +166,12 @@ async function waitUntilReady(app: GantryApp, previewId: string): Promise<Record
     await app.supervisor.healthPass();
     const rows = app.db.prepare('SELECT service_id, state, port FROM preview_services WHERE preview_id=?').all(previewId) as { service_id: string; state: string; port: number | null }[];
     snapshot = Object.fromEntries(rows.map((row) => [row.service_id, { state: row.state, port: row.port }]));
-    if (rows.length === 2 && rows.every((row) => row.state === 'ready')) return snapshot;
+    if (rows.length === 2 && rows.every((row) => row.state === 'ready')) {
+      const response = await fetch(`http://127.0.0.1:${snapshot.frontend.port}/health`);
+      const body = await response.json() as { backend: string };
+      assert.equal(body.backend, `http://127.0.0.1:${snapshot.backend.port}`);
+      return snapshot;
+    }
     await delay(150);
   }
   const errors = app.db.prepare('SELECT service_id, error FROM preview_services WHERE preview_id=?').all(previewId) as { service_id: string; error: string | null }[];
@@ -234,7 +241,7 @@ describe('full fixture lifecycle', () => {
     const backendPort = services['backend']!.port!;
     assert.notEqual(frontendPort, backendPort);
     const frontendHealth = await (await fetch(`http://127.0.0.1:${frontendPort}/health`)).json() as { role: string; port: number };
-    assert.deepEqual(frontendHealth, { ok: true, role: 'frontend', port: frontendPort });
+    assert.deepEqual(frontendHealth, { ok: true, role: 'frontend', port: frontendPort, backend: `http://127.0.0.1:${backendPort}` });
     const backendHealth = await (await fetch(`http://127.0.0.1:${backendPort}/health`)).json() as { role: string; port: number };
     assert.deepEqual(backendHealth, { ok: true, role: 'backend', port: backendPort });
 

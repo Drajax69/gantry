@@ -94,6 +94,7 @@ describe('importLegacyWorkspace (real run)', () => {
       if (parsed.ok) {
         assert.equal(parsed.config.project.defaultPromptTemplate, 'builtin:paper-setter-legacy');
         assert.equal(parsed.config.project.branchPrefix, 'codex');
+        assert.equal(parsed.config.services.find(s => s.id === 'frontend')?.env.VITE_BACKEND_URL, '${origin.backend}');
         assert.equal(parsed.config.environments[0]!.id, 'papersetter');
         // Secrets are referenced, never embedded.
         assert.ok(!raw.includes('example-not-a-real-secret'), 'no secret values in the config');

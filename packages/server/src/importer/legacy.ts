@@ -103,7 +103,7 @@ export async function importLegacyWorkspace(input: LegacyImportInput, db?: Datab
       healthUrl: 'http://127.0.0.1:${port}/',
       openUrl: 'http://127.0.0.1:${port}/',
       dependsOn: ['backend'],
-      env: {},
+      env: { VITE_BACKEND_URL: '${origin.backend}' },
       envFiles: ['.env', '.env.local', '.env.preview.local'],
       workDir: '.',
       hooks: { preStart: [], postStart: [] },

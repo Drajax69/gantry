@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Wire preview services using dynamic dependency origins and ports; legacy frontend imports now connect to their own preview backend.
+
 - Managed runtimes retain a verifiable process claim, preventing duplicate preview processes on discovery passes.
 
 - Custom agents now accept quoted command arguments and preserve literal prompt content during substitution.
