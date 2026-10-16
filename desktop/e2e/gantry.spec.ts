@@ -276,3 +276,36 @@ test('ticket colours are distinct, survive moves and reloads, and stay readable 
     await expect(page.getByRole('dialog').locator('header')).toHaveClass(/gantry-ticket-heading/);
   } finally { await request.post('http://127.0.0.1:3458/__fixture',{data:{status:null}}); }
 });
+
+test('tickets can be deleted from the board after confirmation, including Done tickets', async ({page,request}) => {
+  const original=(await (await request.get('http://127.0.0.1:3458/api/status')).json()).tickets[0];
+  await request.post('http://127.0.0.1:3458/api/projects/fixture/tickets',{data:{title:'Disposable deletion ticket',branch:'ticket/delete',description:''}});
+  await page.goto('/');
+  const card=page.locator('article[data-ticket-id="ticket-1"]');
+  const remove=card.getByRole('button',{name:'Delete ticket Disposable deletion ticket',exact:true});
+  await remove.click();
+  const dialog=page.getByRole('dialog',{name:'Delete ticket?'});
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('This removes the ticket from your board. Its worktrees and pull requests will remain.')).toBeVisible();
+  await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(remove).toBeFocused();
+  await expect(card).toBeVisible();
+  await request.post('http://127.0.0.1:3458/api/tickets/ticket-1/update',{data:{run:{agent:'generic',state:'running'}}});
+  await page.reload();
+  await expect(remove).toBeDisabled();
+  await request.post('http://127.0.0.1:3458/api/tickets/ticket-1/update',{data:{status:'done',run:null}});
+  await page.reload();
+  await remove.click();
+  await page.setViewportSize({width:900,height:650});
+  await page.screenshot({path:'e2e/.tmp/delete-ticket-dialog.png'});
+  await dialog.getByRole('button',{name:'Delete ticket',exact:true}).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(card).toHaveCount(0);
+  await page.reload();
+  await expect(card).toHaveCount(0);
+  // Restore shared fixture state for subsequent review-space tests.
+  await request.post('http://127.0.0.1:3458/api/projects/fixture/tickets',{data:original});
+  await request.post('http://127.0.0.1:3458/api/tickets/ticket-1/update',{data:original});
+  await request.get('/api/gantry/api/status');
+});
