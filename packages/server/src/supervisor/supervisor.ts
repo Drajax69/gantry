@@ -10,7 +10,7 @@ import type { LoadedProject } from '../projects/registry.js';
 import type { Logger } from '../log.js';
 import { run, spawnDetached, type SpawnHandle } from '../util/exec.js';
 import { PortAllocator } from '../ports/ports.js';
-import { discoverGroups, type PreviewGroup } from '../discover/discover.js';
+import { ensureMainCheckouts, discoverGroups, type PreviewGroup } from '../discover/discover.js';
 import { buildServiceEnv, resolveServiceCommand } from './env.js';
 import { ownsProcess, processAlive, interruptProcessGroup } from './processes.js';
 
@@ -183,6 +183,7 @@ export class Supervisor {
   private async tickProject(project: LoadedProject): Promise<void> {
     let groups: PreviewGroup[];
     try {
+      await ensureMainCheckouts(project);
       groups = await discoverGroups(project);
     } catch (error) {
       this.log.warn(`${project.config.project.id}: discovery failed: ${(error as Error).message}`);
@@ -220,6 +221,7 @@ export class Supervisor {
     } else {
       this.db.prepare('UPDATE previews SET last_seen_at=?, updated_at=updated_at WHERE id=?').run(now, group.id);
     }
+    if (group.isPrimary) await this.restorePreview(group.id);
     const row = this.previewRow(group.id)!;
     this.syncCheckouts(group);
 
@@ -477,7 +479,7 @@ export class Supervisor {
       GANTRY_DATA_DIR: this.ctx.dataDir,
       GANTRY_READY_FILE: readyFile,
       GANTRY_BANNER: service.banner?.enabled ? '1' : '0',
-      GANTRY_BANNER_TITLE: preview.branch === '__primary__' ? 'Main workspace' : preview.branch.split('/').pop() ?? preview.branch,
+      GANTRY_BANNER_TITLE: preview.branch === '__primary__' ? 'Main preview' : preview.branch.split('/').pop() ?? preview.branch,
       GANTRY_BANNER_BRANCH: preview.branch,
       GANTRY_BANNER_WARNING: 'Shared data',
     };
@@ -634,11 +636,13 @@ export class Supervisor {
   }
 
   async setPaused(previewId: string, paused: boolean): Promise<void> {
+    if (paused && this.previewRow(previewId)?.is_primary) throw new Error("The main preview stays running while Gantry is open.");
     this.db.prepare('UPDATE previews SET paused=?, updated_at=? WHERE id=?').run(paused ? 1 : 0, new Date().toISOString(), previewId);
     if (paused) await this.stopPreview(previewId);
   }
 
   async setArchived(previewId: string, archived: boolean): Promise<void> {
+    if (archived && this.previewRow(previewId)?.is_primary) throw new Error("The main preview cannot be archived.");
     this.db.prepare('UPDATE previews SET archived=?, removed=0, updated_at=? WHERE id=?').run(archived ? 1 : 0, new Date().toISOString(), previewId);
     if (archived) {
       await this.stopPreview(previewId);
@@ -647,6 +651,7 @@ export class Supervisor {
   }
 
   async setRetired(previewId: string, retired: boolean): Promise<void> {
+    if (retired && this.previewRow(previewId)?.is_primary) return;
     this.db.prepare('UPDATE previews SET retired=?, updated_at=? WHERE id=?').run(retired ? 1 : 0, new Date().toISOString(), previewId);
     if (retired) await this.stopPreview(previewId);
   }

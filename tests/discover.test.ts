@@ -2,7 +2,7 @@ import { test, describe, afterAll } from 'vitest';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { parseProjectConfig, type ProjectConfig } from '../packages/shared/src/config/schema.js';
-import { discoverGroups } from '../packages/server/src/discover/discover.js';
+import { ensureMainCheckouts, discoverGroups } from '../packages/server/src/discover/discover.js';
 import { ensureWorktree } from '../packages/server/src/git/worktrees.js';
 import { matchPull, shouldRetire, mergedEvidence } from '../packages/server/src/discover/merge-evidence.js';
 import type { PullRef } from '../packages/server/src/discover/remote.js';
@@ -241,4 +241,21 @@ describe('mergedEvidence (fast-forward merge)', () => {
     const evidence = await mergedEvidence(repo, { head: featureHead }, pr, squashHead, [pr]);
     assert.match(evidence ?? '', /squash merge|equivalent patches/);
   });
+});
+
+
+test('main preview uses default branches without switching primary feature checkouts', async () => {
+  const fixture = await createWorkspace({backendRequired:true});
+  const project = loadProject(fixture);
+  await git(fixture.frontend, 'checkout', '-b', 'feature/current');
+  await write(path.join(fixture.frontend, 'unfinished.txt'), 'preserve');
+  await ensureMainCheckouts(project);
+  const groups = await discoverGroups(project);
+  const main = groups.find(group => group.isPrimary)!;
+  assert.equal(main.checkouts.length, 2);
+  assert.ok(main.checkouts.every(checkout => checkout.branch === 'main'));
+  assert.notEqual(main.checkouts.find(checkout => checkout.repositoryId === 'frontend')!.path, fixture.frontend);
+  assert.equal(await git(fixture.frontend, 'branch', '--show-current'), 'feature/current');
+  assert.match(await git(fixture.frontend, 'status', '--porcelain'), /unfinished.txt/);
+  assert.ok(groups.some(group => group.branchKey === 'feature/current' && !group.isPrimary));
 });

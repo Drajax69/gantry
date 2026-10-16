@@ -115,6 +115,7 @@ test("the desktop app starts its bundled Gantry service", async () => {
     const workspace = path.resolve(__dirname, '.tmp', 'gantry-workspace');
     await fs.mkdir(workspace, { recursive: true });
     execFileSync('git', ['clone', path.resolve(__dirname, '.tmp', 'work'), path.join(workspace, 'repo')]);
+    execFileSync('git', ['checkout', 'main'], {cwd:path.join(workspace,'repo')});
     await fs.writeFile(path.join(workspace, 'repo', 'package.json'), '{}');
     await fs.writeFile(path.join(workspace, 'repo', 'app.cjs'), "exports.app=require('node:http').createServer((_req,res)=>res.end('bundled-node-ok'));");
     await fs.writeFile(path.join(workspace, 'gantry.yaml'), JSON.stringify({
@@ -138,7 +139,8 @@ test("the desktop app starts its bundled Gantry service", async () => {
     const response = await fetch(base+'/api/status').catch(() => null);
     if (response?.ok) {
       const state = await response.json();
-      for (const preview of state.previews) await fetch(`${base}/api/previews/${preview.id}/pause`, {method:'POST',headers:{'Content-Type':'application/json',Origin:base},body:'{}'});
+      for (const preview of state.previews) for (const service of preview.services) if (service.pid) { try { process.kill(-service.pid, 'SIGTERM'); } catch { /* already stopped */ } }
+      for (const project of state.projects) await fetch(`${base}/api/projects/${project.id}`, {method:'DELETE',headers:{'Content-Type':'application/json',Origin:base},body:'{}'});
     }
     await app.close();
   }

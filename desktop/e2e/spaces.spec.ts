@@ -69,9 +69,9 @@ test("a hidden tab shows Claude working, then a new-answer dot", async ({ page }
 test("spaces can be created, renamed, switched, and survive a reload", async ({ page }) => {
   const errors = watchConsole(page);
   await page.goto("/reviews");
-  const before = await (await page.request.get("/api/spaces")).json();
-  const newName = `Space ${before.spaces.length + 1}`;
+  const created = page.waitForResponse(response => response.url().endsWith("/api/spaces") && response.request().method() === "POST");
   await page.getByRole("button", { name: "New space" }).click();
+  const newName = (await (await created).json()).name;
   await expect(page.getByText(`${newName} is empty`)).toBeVisible();
   await addPr(page, "https://github.com/local/fixture/tree/main");
   await expect(tab(page, "fixture : main")).toBeVisible();

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { idFor } from '@gantry/shared';
 import type { ProjectConfig } from '@gantry/shared';
 import type { LoadedProject } from '../projects/registry.js';
-import { listWorktrees, type WorktreeInfo } from '../git/worktrees.js';
+import { ensureWorktree, listWorktrees, type WorktreeInfo } from '../git/worktrees.js';
 
 /**
  * Fast, local-only discovery: `git worktree list` per product repository and
@@ -12,7 +12,7 @@ import { listWorktrees, type WorktreeInfo } from '../git/worktrees.js';
  *
  * Grouping rules (generalized from the legacy manager):
  * - The primary checkout of each repository (the workspace's own clone) forms
- *   the "main workspace" group, whatever branch it currently has.
+ *   the default-branch group when it is on the configured default branch.
  * - Other worktrees group by exact branch name across repositories.
  * - A group missing one `required` repository falls back to that repository's
  *   primary checkout (a one-sided worktree still gets a full preview).
@@ -36,6 +36,16 @@ export interface PreviewGroup {
   branch: string | null;
   isPrimary: boolean;
   checkouts: Checkout[];
+}
+
+/** Ensure a default-branch checkout without switching or resetting user work. */
+export async function ensureMainCheckouts(project: LoadedProject): Promise<void> {
+  for (const repo of project.config.repositories.filter(repo => repo.role === 'product')) {
+    const repoDir = path.resolve(project.workspace, repo.path);
+    if (!(await fs.stat(repoDir).catch(() => null))) continue;
+    if ((await listWorktrees(repoDir)).some(tree => tree.branch === repo.defaultBranch)) continue;
+    await ensureWorktree({ repoPath: repoDir, repo, branch: repo.defaultBranch, worktreeRoot: path.resolve(project.workspace, project.config.project.worktreeRoot) });
+  }
 }
 
 export async function discoverGroups(project: LoadedProject): Promise<PreviewGroup[]> {
@@ -67,8 +77,9 @@ export async function discoverGroups(project: LoadedProject): Promise<PreviewGro
   for (const repo of productRepos) {
     for (const tree of trees.get(repo.id) ?? []) {
       const isPrimaryCheckout = path.resolve(tree.path) === path.resolve(repoPath(repo.id));
-      const key = isPrimaryCheckout ? '__primary__' : tree.branch ?? `detached:${path.dirname(tree.path)}`;
-      add(key, isPrimaryCheckout, {
+      const isMain = tree.branch === repo.defaultBranch;
+      const key = isMain ? '__primary__' : tree.branch ?? `detached:${path.dirname(tree.path)}`;
+      add(key, isMain, {
         repositoryId: repo.id,
         path: path.resolve(tree.path),
         head: tree.head,

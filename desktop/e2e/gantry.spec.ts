@@ -319,3 +319,37 @@ test('tickets can be deleted from the board after confirmation, including Done t
   await request.post('http://127.0.0.1:3458/api/tickets/ticket-1/update',{data:original});
   await request.get('/api/gantry/api/status');
 });
+
+test('sidebar embeds Main and in-progress ticket previews, excluding backlog and Done', async ({page,request}) => {
+  const original=await (await request.get('http://127.0.0.1:3458/api/status')).json();
+  const ticket={...original.tickets[0],projectId:'fixture',run:null,description:'',scope:'both',pullRequests:[],artifacts:[]};
+  const preview={...original.previews[0],status:'Running',checkouts:[],isPrimary:false};
+  const status={...original,tickets:[{...ticket,id:'active-preview',title:'Runtime work',branch:'ticket/runtime',status:'in_progress'},{...ticket,id:'done-preview',title:'Finished work',branch:'ticket/done',status:'done'},{...ticket,id:'backlog-preview',title:'Future work',branch:'ticket/future',status:'backlog'}],previews:[{...preview,id:'main-preview',branch:'__primary__',isPrimary:true},{...preview,id:'active-preview',branch:'ticket/runtime'}]};
+  await page.route('http://127.0.0.1:6500/**',route=>route.fulfill({contentType:'text/html',body:'<h1>Embedded application</h1><label>Draft<input></label><a href="/next">Next page</a>'}));
+  try {
+    await request.post('http://127.0.0.1:3458/__fixture',{data:{status}});
+    await page.goto('/');
+    const nav=page.getByRole('navigation',{name:'Previews',exact:true});
+    await expect(nav.getByRole('button')).toHaveCount(2);
+    await nav.getByRole('button',{name:'Main',exact:true}).click();
+    const frame=page.frameLocator('iframe[title="Main preview"]');
+    await expect(frame.getByRole('heading',{name:'Embedded application'})).toBeVisible();
+    await frame.getByLabel('Draft').fill('keep my work');
+    await page.getByRole('button',{name:'Refresh Gantry'}).click();
+    await expect(frame.getByLabel('Draft')).toHaveValue('keep my work');
+    await frame.getByRole('link',{name:'Next page'}).click();
+    await expect(frame.getByRole('heading')).toBeVisible();
+    await nav.getByRole('button',{name:'Runtime work',exact:true}).click();
+    await expect(page.frameLocator('iframe[title="Runtime work preview"]').getByRole('heading')).toBeVisible();
+    await page.setViewportSize({width:900,height:650});
+    await page.screenshot({path:'e2e/.tmp/sidebar-preview-compact.png'});
+    await page.getByRole('button',{name:'Toggle theme'}).click();
+    await page.setViewportSize({width:1440,height:900});
+    await page.screenshot({path:'e2e/.tmp/sidebar-preview-dark.png'});
+    status.tickets[0].status='done';
+    await request.post('http://127.0.0.1:3458/__fixture',{data:{status}});
+    await page.getByRole('button',{name:'Refresh Gantry'}).click();
+    await expect(nav.getByRole('button')).toHaveCount(1);
+    await expect(page.frameLocator('iframe[title="Main preview"]').getByRole('heading')).toBeVisible();
+  } finally {await request.post('http://127.0.0.1:3458/__fixture',{data:{status:null}});}
+});

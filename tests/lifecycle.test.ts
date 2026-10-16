@@ -275,14 +275,15 @@ describe('full fixture lifecycle', () => {
     const again = await waitUntilReady(app, primary.id);
     assert.equal(again['frontend']!.port, frontendPort, 'ports persist across restarts');
 
-    // --- pause stops the process groups ------------------------------------
-    await app.supervisor.setPaused(primary.id, true);
-    await until(async () => {
-      const rows = app.db.prepare('SELECT COUNT(*) AS n FROM preview_services WHERE preview_id=?').all(primary.id) as { n: number }[];
-      return Number(rows[0]!.n) === 0;
-    }, 10_000, 'paused preview has no running services');
-    await delay(200);
-    await assert.rejects(() => fetch(`http://127.0.0.1:${frontendPort}/health`, { signal: AbortSignal.timeout(1000) }), undefined, 'frontend stopped listening');
+    // Main is always available, including after migrating old paused state.
+    await assert.rejects(app.supervisor.setPaused(primary.id, true), /main preview/);
+    await assert.rejects(app.supervisor.setArchived(primary.id, true), /main preview/);
+    app.db.prepare('UPDATE previews SET paused=1, archived=1, retired=1 WHERE id=?').run(primary.id);
+    await waitUntilReady(app, primary.id);
+    await until(() => {
+      const row = app.db.prepare('SELECT paused, archived, retired FROM previews WHERE id=?').get(primary.id) as {paused:number;archived:number;retired:number};
+      return !row.paused && !row.archived && !row.retired;
+    });
 
     // --- takeover interrupts the agent process group -----------------------
     const takeover = await app.agents.takeover(run.id, 1_500);

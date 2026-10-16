@@ -15,12 +15,13 @@ import { api, spaceHref } from "@/lib/client/api";
 import { gantry, type ProjectView, type StatusView, type TicketView } from "@/lib/client/gantry";
 
 import { useTicketColors } from "./ticket-colors";
+import { PreviewPane } from "./preview-pane";
 import { WorkspacePromptDialog } from "./workspace-prompt-dialog";
 import { DeleteTicketDialog } from "./delete-ticket-dialog";
 import { TicketDialog } from "./ticket-dialog";
 import { TicketConversation, ticketChatRequest, openTicketChat } from "./ticket-chat";
 
-type Area = "tickets" | "reviews";
+type Area = "tickets" | "reviews" | "previews";
 const labels: Record<string, string> = { backlog: "Backlog", in_progress: "In progress", done: "Done" };
 const selectClass = "h-8 rounded-lg border bg-background px-2 text-sm focus-visible:outline-2 focus-visible:outline-ring";
 const bridge = (url: string) => `/api/gantry${url}`;
@@ -39,6 +40,7 @@ export function GantryWorkspace() {
   const [ticketTab, setTicketTab] = useState<"details" | "preview">("details");
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropColumn, setDropColumn] = useState<string | null>(null);
+  const [previewTicket, setPreviewTicket] = useState("main");
   const [promptOpen, setPromptOpen] = useState(false);
   const [deleting, setDeleting] = useState<TicketView | null>(null);
   const [creating, setCreating] = useState(false);
@@ -76,6 +78,8 @@ export function GantryWorkspace() {
   const previews = data?.previews.filter((p) => p.projectId === project?.id && (p.isPrimary || !doneBranch(p.branch))) ?? [];
   const pulls = data?.pulls.filter((p) => p.projectId === project?.id && !doneBranch(p.branch)) ?? [];
   const ticket = tickets.find((t) => t.id === selected);
+  const previewEntries = [{ id: "main", name: "Main", preview: previews.find(p => p.isPrimary) }, ...tickets.filter(t => t.status === "in_progress").map(t => ({ id: t.id, name: t.title, preview: previews.find(p => !p.isPrimary && p.branch === t.branch) }))];
+  const activePreview = previewEntries.find(entry => entry.id === previewTicket) ?? previewEntries[0];
   const ticketPreviews = previews.filter(p => p.branch === ticket?.branch && !p.isPrimary);
   const jobs = data?.jobs.filter((j) => j.projectId === project?.id && ["queued", "running", "failed"].includes(j.state)).slice(0, 5) ?? [];
 
@@ -132,7 +136,7 @@ export function GantryWorkspace() {
       <SettingsLink /><ThemeToggle />
     </header>
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-      <aside className="flex shrink-0 flex-col gap-5 border-b bg-muted/20 p-4 md:w-56 md:border-r md:border-b-0">
+      <aside className="flex max-h-[35dvh] overflow-y-auto md:max-h-none shrink-0 flex-col gap-5 border-b bg-muted/20 p-4 md:w-56 md:border-r md:border-b-0">
         <div className="space-y-2"><label htmlFor="gantry-project" className="text-xs font-medium text-muted-foreground">Workspace</label>
           <select id="gantry-project" className={cn(selectClass, "w-full")} value={project?.id ?? ""} onChange={(e) => { setProjectId(e.target.value); localStorage.setItem("gantry-workspace", e.target.value); setSelected(null); setCreating(false); setLog(null); }}>
             {!data?.projects.length && <option value="">No workspace connected</option>}
@@ -143,6 +147,7 @@ export function GantryWorkspace() {
           {([["tickets", "Tickets", LayoutListIcon, tickets.length], ["reviews", "Reviews", GitPullRequestIcon, pulls.length]] as const).map(([id, label, Icon, count]) =>
             <Button key={id} variant={area === id ? "secondary" : "ghost"} className={cn("justify-start", area === id && (id === "tickets" ? "gantry-nav-tickets" : "gantry-nav-reviews"))} aria-current={area === id ? "page" : undefined} onClick={() => changeArea(id)}><Icon />{label}<span className="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">{count}</span></Button>)}
         </nav>
+        {project && <nav aria-label="Previews" className="space-y-1"><h2 className="mb-2 flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground"><MonitorIcon className="size-4" />Previews</h2>{previewEntries.map(entry => <Button key={entry.id} variant={area === "previews" && activePreview.id === entry.id ? "secondary" : "ghost"} className={cn("h-auto min-h-8 w-full justify-start text-left", area === "previews" && activePreview.id === entry.id && "gantry-nav-reviews")} aria-current={area === "previews" && activePreview.id === entry.id ? "page" : undefined} onClick={() => { setPreviewTicket(entry.id); changeArea("previews"); closeTicket(); }}><span className="size-1.5 shrink-0 rounded-full bg-current" /><span className="min-w-0 whitespace-normal break-words">{entry.name}</span></Button>)}</nav>}
         <div className="mt-auto space-y-3">
           {project && <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setPromptOpen(true)}><MessageSquareIcon />Workspace prompt</Button>}
           <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setAdding(!adding)}><PlusIcon /> Add workspace</Button>
@@ -151,11 +156,11 @@ export function GantryWorkspace() {
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
         <div className="flex flex-wrap items-center gap-3 border-b px-6 py-5">
-          <div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">{area === "tickets" ? "Tickets" : "Ready for review"}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{area === "tickets" ? "Create a worktree, build the feature, and open a pull request." : "Review related pull requests together."}</p></div>
+          <div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">{area === "tickets" ? "Tickets" : area === "previews" ? activePreview.name : "Ready for review"}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{area === "tickets" ? "Create a worktree, build the feature, and open a pull request." : area === "previews" ? (activePreview.id === "main" ? "Main branch · always available" : "In-progress ticket preview") : "Review related pull requests together."}</p></div>
           <Button variant="outline" disabled={busy} onClick={() => void refresh()} aria-label="Refresh Gantry"><RefreshCwIcon /></Button>
           {area === "tickets" && project && <Button disabled={busy} onClick={() => { setCreating(true); setSelected(null); setLog(null); setTicketTab("details"); }}><PlusIcon /> New ticket</Button>}
-          {area !== "tickets" && project && <Button variant="outline" disabled={busy} onClick={() => void act(() => gantry.refreshProject(project.id), "Remote sync queued")}><RefreshCwIcon /> Sync remote</Button>}
+          {area === "reviews" && project && <Button variant="outline" disabled={busy} onClick={() => void act(() => gantry.refreshProject(project.id), "Remote sync queued")}><RefreshCwIcon /> Sync remote</Button>}
         </div>
         {error && <div role="alert" className="border-b bg-destructive/5 px-6 py-3 text-sm text-destructive">{error} {data && "Showing the last loaded state."}</div>}
         {adding && <form className="flex flex-wrap items-end gap-3 border-b p-6" onSubmit={(e) => { e.preventDefault(); void act(() => gantry.addProject(workspace.trim()), "Workspace connected").then((ok) => { if (ok) { setAdding(false); setWorkspace(""); } }); }}>
@@ -164,8 +169,9 @@ export function GantryWorkspace() {
         </form>}
         {!data && !error && <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2Icon className="size-4 animate-spin" /> Loading your workspaces…</div>}
         {data && !project && <div className="max-w-xl space-y-3 p-8"><h2 className="text-lg font-medium">Connect your first workspace</h2><p className="text-sm leading-relaxed text-muted-foreground">Choose a Git repository or a folder of repositories. Gantry creates local configuration automatically. Configure your provider once in Settings, then start a ticket.</p><Button onClick={() => setAdding(true)}>Add workspace</Button></div>}
-        {jobs.length > 0 && <details className="border-b px-6 py-3 text-xs text-muted-foreground"><summary className="cursor-pointer">Activity · {jobs.length} recent jobs</summary><div className="mt-3 space-y-2">{jobs.map((j) => <div key={j.id} className="flex flex-wrap items-center gap-2"><State value={j.state} /><span>{j.kind} · {j.detail || j.phase || j.error || "Queued"}</span>{j.error && <span className="text-destructive">{j.error}</span>}</div>)}</div></details>}
+        {area !== "previews" && jobs.length > 0 && <details className="border-b px-6 py-3 text-xs text-muted-foreground"><summary className="cursor-pointer">Activity · {jobs.length} recent jobs</summary><div className="mt-3 space-y-2">{jobs.map((j) => <div key={j.id} className="flex flex-wrap items-center gap-2"><State value={j.state} /><span>{j.kind} · {j.detail || j.phase || j.error || "Queued"}</span>{j.error && <span className="text-destructive">{j.error}</span>}</div>)}</div></details>}
 
+        {project && area === "previews" && <PreviewPane key={`${project.id}:${activePreview.id}`} name={activePreview.name} preview={activePreview.preview} refresh={refresh} />}
         {project && area === "tickets" && <div className="min-h-0 flex-1">
           <section className="grid grid-cols-1 divide-y md:grid-cols-3 md:divide-x md:divide-y-0" aria-label="Ticket board">
             {["backlog", "in_progress", "done"].map(status => {
