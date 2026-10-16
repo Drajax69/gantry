@@ -174,6 +174,15 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   await request.patch('/api/agents',{data:{id:codex.id,current:true}});
   await page.reload();
   const launches = path.resolve('e2e/.tmp/home/external-launches.jsonl');
+  await page.getByRole('button',{name:'Workspace prompt',exact:true}).click();
+  await page.getByLabel('Starting prompt',{exact:true}).fill('Workspace delivery rule: implement ${ticket.title}, validate, then create a PR.');
+  await page.getByRole('button',{name:'Save prompt',exact:true}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.reload();
+  await page.getByRole('button',{name:'Workspace prompt',exact:true}).click();
+  await expect(page.getByLabel('Starting prompt',{exact:true})).toHaveValue('Workspace delivery rule: implement ${ticket.title}, validate, then create a PR.');
+  await page.screenshot({path:'e2e/.tmp/workspace-prompt.png'});
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();
   await page.getByRole('button',{name:'Open chat for Test the unified workspace'}).click();
   await expect(page.getByText('Opened this ticket in Codex',{exact:true})).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -184,7 +193,8 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   const protocol = fs.readFileSync(path.resolve('e2e/.tmp/home/codex-protocol.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
   expect(protocol.filter(c=>c.method==='thread/start')).toHaveLength(1);
   expect(protocol.some(c=>c.method==='turn/start')).toBe(false);
-  expect(protocol.find(c=>c.method==='thread/start').params.developerInstructions).toContain('Updated ticket details persist after reload.');
+  expect(protocol.find(c=>c.method==='thread/start').params.developerInstructions).toContain('Workspace delivery rule: implement Test the unified workspace, validate, then create a PR.');
+  await request.post('/api/gantry/api/projects/fixture/chat-prompt',{data:{prompt:'Changed for future conversations'}});
   await request.patch('/api/agents',{data:{id:'claude',current:true}});
   const responses = await Promise.all([1,2].map(()=>request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})));
   for (const response of responses) expect((await response.json()).conversation.sessionId).toBe(id);
@@ -222,7 +232,7 @@ test('Claude conversation uses one session ID and resumes it; launch failures re
   expect(reopened.conversation.sessionId).toBe(failed.sessionId);
   const calls=fs.readFileSync(path.join(home,'external-launches.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
   expect(JSON.stringify(calls.at(-1))).toContain('--resume');
-  expect(JSON.stringify(calls.at(-1))).toContain('Updated ticket details persist after reload.');
+  expect(JSON.stringify(calls.at(-1))).toContain('Changed for future conversations');
   expect(JSON.stringify(calls.at(-1))).toContain(failed.sessionId);
   expect(JSON.stringify(calls.at(-1))).toContain('custom title');
 });

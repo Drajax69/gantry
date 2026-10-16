@@ -43,10 +43,10 @@ function save(record: TicketConversation) {
 function contextFor(work: TicketWorkspace) {
   return [
     `Gantry ticket: ${work.ticket.title}`, `Ticket ID: ${work.ticket.id}`, `Branch: ${work.ticket.branch}`,
-    work.ticket.description, work.ticket.additions || "",
+    work.ticket.description, work.ticket.additions || "", work.prompt || "",
     `Workspace instructions: ${path.join(work.project.workspace, "AGENTS.md")}`,
     "Prepared ticket worktrees:", ...work.checkouts.map(c => `${c.repositoryId}: ${c.path}`),
-    "Read workspace and repository instructions. Work in the prepared worktrees, preserve unrelated changes, and validate the feature. When the user asks, commit ticket-related changes and create or update draft PRs on this branch; Gantry associates them with this ticket. Do not merge or deploy. Wait for the user's instructions before making changes.",
+    "Read workspace and repository instructions. Work in the prepared worktrees, preserve unrelated changes, and validate the feature. Follow the workspace starting prompt above for delivery and validation. Gantry associates PRs on this branch with this ticket. Do not merge or deploy.",
   ].filter(Boolean).join("\n\n");
 }
 

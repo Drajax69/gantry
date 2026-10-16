@@ -15,6 +15,7 @@ import { api, spaceHref } from "@/lib/client/api";
 import { gantry, type ProjectView, type StatusView, type TicketView } from "@/lib/client/gantry";
 
 import { useTicketColors } from "./ticket-colors";
+import { WorkspacePromptDialog } from "./workspace-prompt-dialog";
 import { DeleteTicketDialog } from "./delete-ticket-dialog";
 import { TicketDialog } from "./ticket-dialog";
 import { TicketConversation, ticketChatRequest, openTicketChat } from "./ticket-chat";
@@ -38,6 +39,7 @@ export function GantryWorkspace() {
   const [ticketTab, setTicketTab] = useState<"details" | "preview">("details");
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropColumn, setDropColumn] = useState<string | null>(null);
+  const [promptOpen, setPromptOpen] = useState(false);
   const [deleting, setDeleting] = useState<TicketView | null>(null);
   const [creating, setCreating] = useState(false);
   const [editingTicket, setEditingTicket] = useState(false);
@@ -122,6 +124,7 @@ export function GantryWorkspace() {
   const changeArea = (next: Area) => { setArea(next); setLog(null); setCreating(false); };
 
   return <div className="gantry-workspace flex h-full min-h-0 flex-col bg-background">
+    {promptOpen && project && <WorkspacePromptDialog project={project} onClose={() => setPromptOpen(false)} />}
     {deleting && <DeleteTicketDialog title={deleting.title} busy={busy} onCancel={() => setDeleting(null)} onDelete={() => void act(() => gantry.deleteTicket(deleting.id), "Ticket deleted").then(ok => { if (ok) { if (selected === deleting.id) closeTicket(); setDeleting(null); } })} />}
     <header className="app-bar flex h-12 shrink-0 items-center gap-3 border-b px-4">
       <span className="flex items-center gap-2 text-sm font-semibold"><LayoutListIcon className="size-5 text-violet-600 dark:text-violet-300" />Gantry</span>
@@ -141,6 +144,7 @@ export function GantryWorkspace() {
             <Button key={id} variant={area === id ? "secondary" : "ghost"} className={cn("justify-start", area === id && (id === "tickets" ? "gantry-nav-tickets" : "gantry-nav-reviews"))} aria-current={area === id ? "page" : undefined} onClick={() => changeArea(id)}><Icon />{label}<span className="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">{count}</span></Button>)}
         </nav>
         <div className="mt-auto space-y-3">
+          {project && <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setPromptOpen(true)}><MessageSquareIcon />Workspace prompt</Button>}
           <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setAdding(!adding)}><PlusIcon /> Add workspace</Button>
           {project && <p className="break-all text-xs leading-relaxed text-muted-foreground">{project.workspace}</p>}
         </div>

@@ -1,3 +1,4 @@
+import { workspacePrompt, saveWorkspacePrompt } from '../projects/prompt.js';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -77,6 +78,13 @@ export async function createHttpServer(app: GantryApp) {
     app.jobs.enqueue('remote-sync', { projectId, dedupeKey: 'remote-sync' });
     await app.supervisor.tick();
     return { ok: true };
+  });
+
+  fastify.get('/api/projects/:projectId/chat-prompt', async request => {
+    return workspacePrompt(await app.loadProjectById((request.params as { projectId: string }).projectId));
+  });
+  fastify.post('/api/projects/:projectId/chat-prompt', async request => {
+    return saveWorkspacePrompt(await app.loadProjectById((request.params as { projectId: string }).projectId), (request.body as { prompt?: unknown })?.prompt);
   });
 
   // ---- prompt preview ------------------------------------------------------

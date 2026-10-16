@@ -1,3 +1,4 @@
+import { workspacePrompt, saveWorkspacePrompt } from '../packages/server/src/projects/prompt.js';
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -30,6 +31,18 @@ test('new workspace needs no provider config, prepares reusable ticket branches,
     assert.equal(again.checkouts[0]!.path, first.checkouts[0]!.path);
     assert.equal(await fs.readFile(path.join(again.checkouts[0]!.path, 'work.txt'), 'utf8'), 'keep this work');
     assert.equal(await git(workspace, 'status', '--porcelain'), '');
+    const repoId = project.config.repositories[0]!.id;
+    const custom = `Workspace instructions: implement ${'${ticket.title}'} at ${'${repo.' + repoId + '}'}; create a PR.`;
+    const beforeConfig = await fs.readFile(project.configPath, 'utf8');
+    assert.throws(() => saveWorkspacePrompt(project, 'Bad ${unknown.variable}'), /unknown|Unknown/);
+    assert.equal(await fs.readFile(project.configPath, 'utf8'), beforeConfig);
+    saveWorkspacePrompt(project, custom);
+    const reloaded = await app.loadProjectById(project.config.project.id);
+    assert.equal(workspacePrompt(reloaded).prompt, custom);
+    assert.deepEqual(reloaded.config.repositories, project.config.repositories);
+    const withPrompt = await ticketWorkspace(app, ticket.id, true);
+    assert.ok(withPrompt.prompt?.includes(`implement Build a feature at ${first.checkouts[0]!.path}; create a PR.`));
+    assert.ok(!withPrompt.prompt?.includes('${ticket.title}'));
     app.tickets.patch(ticket.id, { status: 'done' });
     await assert.rejects(ticketWorkspace(app, ticket.id, true), /Reopen/);
   } finally { app.db.close(); if (previousData === undefined) delete process.env.GANTRY_DATA_DIR; else process.env.GANTRY_DATA_DIR = previousData; await temp.cleanup(); }

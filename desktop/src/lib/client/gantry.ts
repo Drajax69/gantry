@@ -152,6 +152,8 @@ async function request<T>(route: string, method: string, body?: unknown): Promis
 }
 
 export const gantry = {
+  workspacePrompt: (id: string): Promise<{ prompt: string }> => request(`/api/projects/${id}/chat-prompt`, 'GET'),
+  saveWorkspacePrompt: (id: string, prompt: string): Promise<{ prompt: string }> => request(`/api/projects/${id}/chat-prompt`, 'POST', { prompt }),
   status: (): Promise<StatusView> => request('/api/status', 'GET'),
   addProject: (workspace: string): Promise<{ ok: boolean; projectId: string }> => request('/api/projects', 'POST', { workspace, initialize: true }),
   removeProject: (projectId: string): Promise<{ ok: boolean }> => request(`/api/projects/${projectId}`, 'DELETE'),

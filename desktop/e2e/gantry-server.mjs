@@ -3,6 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 let tickets = [];
+let workspacePrompt = 'Implement ${ticket.title} in the prepared worktrees.';
 const project = { id: 'fixture', name: 'Fixture workspace', workspace: '/fixture/workspace', defaultAgent: 'generic', scopes: [{id:'both',label:'Frontend + backend'}], environments: [], agents: [{ id:'generic', capabilities:{ available:true,label:'Test agent' } }] };
 let overrides = null;
 const server = http.createServer(async (req, res) => {
@@ -14,6 +15,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url?.startsWith('/logs/')) { res.setHeader('Content-Type','text/plain'); return res.end('Fixture preview ready'); }
   let raw=''; for await (const chunk of req) raw+=chunk;
   const body = raw ? JSON.parse(raw) : {};
+  if (req.url === '/api/projects/fixture/chat-prompt') { if (req.method === 'POST') workspacePrompt=body.prompt; return send({prompt:workspacePrompt}); }
   if (req.url === "/__fixture") { overrides = body.status ?? null; return send({ok:true}); }
   if (req.url === '/api/projects/fixture/tickets') {
     const ticket = { ...body,id:'ticket-1',projectId:'fixture',status:'backlog',branch:'ticket/review',run:null,pullRequests:[],artifacts:[] };
@@ -25,7 +27,7 @@ const server = http.createServer(async (req, res) => {
       try { execFileSync('git', ['-C', cwd, 'checkout', '-b', tickets[0].branch], {stdio:'pipe'}); } catch { /* branch already exists */ }
       tickets[0].status = 'in_progress';
     }
-    return send({ ticket: tickets[0], project, checkouts: [{repositoryId:'frontend',path:cwd}] });
+    return send({ ticket: tickets[0], prompt:workspacePrompt.replace('${ticket.title}', tickets[0].title), project, checkouts: [{repositoryId:'frontend',path:cwd}] });
   }
   if (req.url === '/api/tickets/ticket-1/prompt') return send({agentId:'generic',prompt:'Implement the fixture ticket.'});
   if (req.url === '/api/tickets/ticket-1/update') { Object.assign(tickets[0],body); return send(tickets[0]); }
