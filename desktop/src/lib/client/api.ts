@@ -1,4 +1,4 @@
-import type { Agent, AgentInput, AgentsResponse, AgentStatus, Anchor, CommentsResponse, Quote, ChatMessage, FileResponse, PrListItem, RecentItem, Space, SpacesResponse, TargetResponse } from "@/lib/types";
+import type { LocalChanges, Agent, AgentInput, AgentsResponse, AgentStatus, Anchor, CommentsResponse, Quote, ChatMessage, FileResponse, PrListItem, RecentItem, Space, SpacesResponse, TargetResponse } from "@/lib/types";
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -26,9 +26,11 @@ export const api = {
   resolve: (url: string) => call<{ id: string; file: string | null }>("/api/resolve", post({ url })),
   target: (id: string, refresh = false) =>
     call<TargetResponse>(`/api/target?${q(refresh ? { id, refresh: "1" } : { id })}`),
-  file: (id: string, path: string, mode: "diff" | "full") =>
-    call<FileResponse>(`/api/file?${q({ id, path, mode })}`),
-  tree: (id: string) => call<string[]>(`/api/tree?${q({ id })}`),
+  file: (id: string, path: string, mode: "diff" | "full", source = "pr") =>
+    call<FileResponse>(`/api/file?${q({ id, path, mode, source })}`),
+  tree: (id: string, source = "pr") => call<string[]>(`/api/tree?${q({ id, source })}`),
+  localChanges: (id: string) => call<LocalChanges>(`/api/local-changes?${q({ id })}`),
+  publish: (id: string, snapshot: LocalChanges, message: string) => call<{commit:string;branch:string}>("/api/local-changes", post({id, tree:snapshot.tree, head:snapshot.head, message})),
   ask: (id: string, text: string, opts: { anchor?: Anchor | null; thread?: string; quote?: Quote[] } = {}) =>
     call<{ msg: ChatMessage }>("/api/chat", post({ id, text, anchor: opts.anchor ?? null, thread: opts.thread, quote: opts.quote })),
   comments: (id: string, refresh = false) => call<CommentsResponse>(`/api/comments?${q(refresh ? { id, refresh: "1" } : { id })}`),

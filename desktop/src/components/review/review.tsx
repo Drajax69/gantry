@@ -15,11 +15,13 @@ import { api, hrefFor, spaceHref } from "@/lib/client/api";
 import { subscribeChat } from "@/lib/client/chat-events";
 import { useAgents } from "@/lib/client/agents";
 import { threadsOf, type Thread } from "@/lib/client/threads";
-import type { Anchor, ChatMessage, CommentsResponse, FileResponse, PrState, Quote, TargetResponse } from "@/lib/types";
+import type { LocalChanges, Anchor, ChatMessage, CommentsResponse, FileResponse, PrState, Quote, TargetResponse } from "@/lib/types";
 import { PrStateBadge } from "@/components/pr-state";
 import { FileList } from "./file-list";
 import { FileView, type Focus } from "./file-view";
 import { ChatPanel, type ChatPanelHandle } from "./chat-panel";
+
+import { PublishDialog } from "./publish-dialog";
 
 type Mode = "diff" | "full";
 
@@ -42,6 +44,12 @@ interface Props {
 
 export function Review({ id, initialFile, embedded = false, onFileChange, onActivity }: Props) {
   const router = useRouter();
+  const [source, setSource] = useState<"pr" | "local">("pr");
+  const [local, setLocal] = useState<LocalChanges | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState<LocalChanges | null>(null);
+  const [answers, setAnswers] = useState(0);
+  const localRevision = useRef<string | null>(null);
   const [data, setData] = useState<TargetResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -70,8 +78,9 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
 
   // Plain branch browsing has no changed files: show the README until a file is picked.
   const current = picked ?? allFiles?.find((p) => /^readme(\.\w+)?$/i.test(p)) ?? null;
-  const canDiff = !!data?.target.baseSha;
-  const changedPaths = useMemo(() => new Set(data?.files.map((f) => f.path)), [data]);
+  const visibleFiles = useMemo(() => source === "local" ? local?.files ?? [] : data?.files ?? [], [source, local, data]);
+  const canDiff = source === "local" || !!data?.target.baseSha;
+  const changedPaths = useMemo(() => new Set(visibleFiles.map((f) => f.path)), [visibleFiles]);
   const effectiveMode: Mode = current && changedPaths.has(current) ? mode : "full";
   const fileKey = current ? `${effectiveMode}:${current}` : null;
 
@@ -113,6 +122,28 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
     };
   }, [id, apply]);
 
+  const loaded = !!data;
+  useEffect(() => {
+    if (!loaded) return;
+    let live = true;
+    const update = async () => {
+      try {
+        const next = await api.localChanges(id);
+        if (!live) return;
+        setLocalError(null); setLocal(next);
+        if (localRevision.current !== next.revision) {
+          const first = localRevision.current === null;
+          localRevision.current = next.revision;
+          setFiles({}); setFileError({}); setAllFiles(null);
+          if (first && (next.files.length || next.commits)) { setSource("local"); setCurrent(next.files[0]?.path ?? null); }
+        }
+      } catch (e) { if (live) setLocalError((e as Error).message); }
+    };
+    void update();
+    const timer = setInterval(() => { if (!document.hidden) void update(); }, 3000);
+    return () => { live = false; clearInterval(timer); };
+  }, [id, loaded, answers]);
+
   // Reviewers' comments from GitHub, for pull requests.
   const isPull = data?.target.kind === "pull";
   useEffect(() => {
@@ -126,20 +157,20 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
 
   useEffect(() => {
     if (!data || allFiles || (!showAll && data.target.baseSha)) return;
-    api.tree(id).then(setAllFiles, (e: Error) => toast.error(e.message));
-  }, [data, showAll, allFiles, id]);
+    api.tree(id, source).then(setAllFiles, (e: Error) => toast.error(e.message));
+  }, [data, showAll, allFiles, id, source]);
 
   useEffect(() => {
     if (!data || !current || !fileKey || files[fileKey] || fileError[fileKey]) return;
     let live = true;
-    api.file(id, current, effectiveMode).then(
+    api.file(id, current, effectiveMode, source).then(
       (f) => live && setFiles((m) => ({ ...m, [fileKey]: f })),
       (e: Error) => live && setFileError((m) => ({ ...m, [fileKey]: e.message })),
     );
     return () => {
       live = false;
     };
-  }, [data, current, fileKey, effectiveMode, files, fileError, id]);
+  }, [data, current, fileKey, effectiveMode, files, fileError, id, source]);
 
   // Keep ?file= in the address bar without re-rendering the route (a space handles its own URL).
   useEffect(() => {
@@ -148,7 +179,7 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
     else window.history.replaceState(null, "", hrefFor(id, current));
   }, [current, id, onFileChange]);
 
-  const [answers, setAnswers] = useState(0);
+
   const title = data?.target.title ?? null;
   const prState = data?.target.prState;
   useEffect(() => {
@@ -353,10 +384,19 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
           </>
         )}
       </header>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
+        <div role="group" aria-label="Change source" className="flex gap-1">
+          <Button size="sm" variant={source === "pr" ? "secondary" : "ghost"} aria-pressed={source === "pr"} onClick={() => { setSource("pr"); setCurrent(data.files[0]?.path ?? null); setFiles({}); setFileError({}); setAllFiles(null); }}>PR changes</Button>
+          <Button size="sm" variant={source === "local" ? "secondary" : "ghost"} aria-pressed={source === "local"} onClick={() => { setSource("local"); setCurrent(local?.files[0]?.path ?? null); setFiles({}); setFileError({}); setAllFiles(null); }}>Local changes{local ? ` (${local.files.length})` : ""}</Button>
+        </div>
+        <p className="min-w-0 flex-1 text-xs text-muted-foreground">{localError || (source === "local" ? local?.files.length || local?.commits ? "Edits and commits not yet on this PR." : "No local changes waiting to be published." : "Changes published on GitHub.")}</p>
+        {isPull && <Button size="sm" disabled={!local || (!local.files.length && !local.commits) || !!pending || !!queued.length || !!localError} onClick={() => setPublishing(local)}>Commit and push</Button>}
+      </div>
+      {publishing && <PublishDialog id={id} snapshot={publishing} onClose={() => setPublishing(null)} onPublished={() => { setPublishing(null); setSource("pr"); localRevision.current = null; toast.success("Changes pushed to the PR"); void refresh(); }} />}
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
         <ResizablePanel id="files" defaultSize="18%" minSize={160}>
           <FileList
-            changed={data.files}
+            changed={visibleFiles}
             all={allFiles}
             showAll={showAll}
             onShowAll={setShowAll}
@@ -370,6 +410,7 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
         <ResizablePanel id="code" minSize={320}>
           <FileView
             target={t}
+            local={source === "local"}
             path={current}
             data={fileKey ? files[fileKey] ?? null : null}
             loading={!!fileKey && !files[fileKey]}
@@ -380,7 +421,7 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
             draftQuote={draftQuote}
             onDraft={pickDraft}
             threads={fileThreads}
-            ghThreads={fileGh}
+            ghThreads={source === "local" ? [] : fileGh}
             collapsed={collapsed}
             onToggleThread={(tid) =>
               setCollapsed((c) => {

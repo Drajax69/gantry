@@ -24,6 +24,7 @@ export interface TargetInfo {
   /** Pull requests only. */
   prState?: PrState;
   url: string; // github.com link
+  headBranch?: string;
   headSha: string;
   baseSha: string | null; // null for plain tree browsing (no diff)
 }
@@ -209,3 +210,5 @@ export interface Quote {
   body: string;
   url?: string;
 }
+
+export interface LocalChanges { revision: string; tree: string; head: string; commits: number; files: ChangedFile[]; branch: string | null; }

@@ -172,7 +172,7 @@ async function prepare(id: string): Promise<PreparedTarget> {
         const head = (await git(repoDir, "rev-parse", `refs/lens/pull/${number}/head`)).trim();
         const base = (await git(repoDir, "merge-base", `refs/lens/pull/${number}/base`, head)).trim();
         return {
-          head, base,
+          head, base, headBranch: meta.headRefName,
           title: meta.title,
           subtitle: `#${number} · ${meta.author?.login} · ${meta.headRefName} → ${meta.baseRefName}`,
           prState: prStateOf(meta.state, meta.isDraft),
@@ -218,8 +218,9 @@ async function prepare(id: string): Promise<PreparedTarget> {
       const currentHead = (await git(worktree, "rev-parse", "HEAD")).trim();
       if (currentHead !== resolved.head) {
         const dirty = (await git(worktree, "status", "--porcelain")).trim();
-        if (dirty) throw Object.assign(new Error(`This review has local edits in ${worktree}. Save them on a branch or discard them before refreshing to the updated revision.`), { status: 409 });
-        await git(worktree, "checkout", "--quiet", "--detach", resolved.head);
+        const ahead = await git(worktree, "merge-base", "--is-ancestor", currentHead, resolved.head).then(() => false, () => true);
+        // Preserve both uncommitted edits and commits that have not reached the PR.
+        if (!dirty && !ahead) await git(worktree, "checkout", "--quiet", "--detach", resolved.head);
       }
     } else {
       await git(repoDir, "worktree", "prune");
@@ -237,6 +238,7 @@ async function prepare(id: string): Promise<PreparedTarget> {
       title: resolved.title, subtitle: resolved.subtitle, url: githubUrlForId(id),
       ...("prState" in resolved && resolved.prState ? { prState: resolved.prState } : {}),
       headSha: resolved.head, baseSha: resolved.base,
+      ...("headBranch" in resolved ? { headBranch: resolved.headBranch as string } : {}),
     },
     repoDir,
     worktree,

@@ -55,7 +55,7 @@ Provider credentials are stored locally, not in this repo. They are currently st
 
 ## Agent access
 
-Ticket chat can edit the prepared worktrees and run development commands, including tests. PR review chat can edit its local review checkout. Review diffs show the fetched GitHub revision, not uncommitted local edits. Dirty review checkouts are preserved when refreshing.
+External ticket conversations work in the prepared worktrees. PR review chat edits its local review checkout. Switch between **PR changes** (published on GitHub) and **Local changes** (unpublished edits and commits). Local changes refresh automatically. **Commit and push** lists all files, accepts a commit message, and publishes to the PR source branch without force-pushing. Failed pushes keep the commit for retry; refreshing preserves local work.
 
 Coding agents execute with your local credentials and should be used on repositories you trust. They are instructed to preserve unrelated changes and not publish until requested. API-provider command execution is not an OS sandbox. Never commit secrets to a ticket branch.
 

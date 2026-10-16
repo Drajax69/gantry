@@ -8,7 +8,7 @@ case "$1 $2" in
   "repo clone") dir=$4; shift 5; exec git clone "$@" "file://$ROOT/remote.git" "$dir" ;;
   "pr view") # a test can set the state by writing it to $PR_LENS_HOME/pr-state
     state=$(cat "$PR_LENS_HOME/pr-state" 2>/dev/null || echo OPEN)
-    echo '{"title":"Guard add against NaN","body":"Throws on NaN input.","author":{"login":"octo"},"state":"'"$state"'","isDraft":false,"baseRefName":"main","headRefName":"feature","additions":4,"deletions":1}' ;;
+    echo '{"title":"Guard add against NaN","body":"Throws on NaN input.","author":{"login":"octo"},"state":"'"$state"'","isDraft":false,"baseRefName":"main","headRefName":"feature","headRepository":{"name":"fixture"},"headRepositoryOwner":{"login":"local"},"additions":4,"deletions":1}' ;;
   "search prs")
     if [[ "$*" == *review-requested* ]]; then
       echo '[{"number":1,"title":"Guard add against NaN","url":"https://github.com/local/fixture/pull/1","updatedAt":"2026-10-14T10:00:00Z","isDraft":false,"state":"open","repository":{"nameWithOwner":"local/fixture"}}]'

@@ -163,7 +163,7 @@ function systemPrompt(t: PreparedTarget): string {
     t.description,
     "",
     "Answer the reviewer's questions about this code. Read the surrounding code before answering, and cite locations as path:line.",
-    "Be direct and concise. Point out real bugs and risks when you see them. When the user asks for changes, edit files in this checkout and summarize the changes and validation. Preserve unrelated edits. Do not commit or push unless the user asks. Explain that edits are local to the Gantry checkout; the displayed review diff describes the fetched revision.",
+    "Be direct and concise. Point out real bugs and risks when you see them. When the user asks for changes, edit files in this checkout and summarize the changes and validation. Preserve unrelated edits. Do not commit or push unless the user asks. Explain that edits are local to the Gantry checkout; the Local changes view shows them, and Commit and push publishes them to the PR.",
     "When a picture would explain it better (a flow, a sequence of calls, how pieces connect, a state machine), draw a small diagram in a ```mermaid code block (flowchart, sequenceDiagram, classDiagram or stateDiagram). The reviewer sees it rendered. Keep it to the parts that matter, quote labels that contain punctuation, and still explain in words.",
   ].join("\n");
 }

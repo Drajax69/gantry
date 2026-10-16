@@ -22,3 +22,11 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     return fail(e, (e as { status?: number }).status ?? 500);
   }
 }
+
+export function requireLocalMutation(req: Request) {
+  const host = req.headers.get("host") || "";
+  const caller = new URL(`http://${host}`);
+  const origin = req.headers.get("origin");
+  const site = req.headers.get("sec-fetch-site");
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(caller.hostname) || caller.host !== host || (caller.port || "80") !== (process.env.PORT || new URL(req.url).port || "80") || (origin && origin !== caller.origin) || (site && !["same-origin", "none"].includes(site))) throw httpError(403, "Local same-origin access only.");
+}

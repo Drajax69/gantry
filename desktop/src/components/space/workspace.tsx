@@ -126,7 +126,10 @@ export function Workspace({ spaceId, initialTarget, initialFile }: Props) {
 
   const onFile = useCallback(
     (target: string, file: string) => {
-      if (files.current[target] === file) return;
+      if (files.current[target] === file) {
+        if (target === active) syncUrl(target);
+        return;
+      }
       files.current[target] = file;
       if (target === active) syncUrl(target);
       if (saveTimer.current) clearTimeout(saveTimer.current);

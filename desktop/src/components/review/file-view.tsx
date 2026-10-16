@@ -37,6 +37,7 @@ type Row =
 
 interface Props {
   target: TargetInfo;
+  local?: boolean;
   path: string | null;
   data: FileResponse | null;
   loading: boolean;
@@ -211,9 +212,9 @@ export function FileView(props: Props) {
             ))}
           </div>
         )}
-        <Button variant="ghost" size="icon-xs" nativeButton={false} render={<a href={blobUrl} target="_blank" rel="noreferrer" />} aria-label="Open on GitHub">
+        {!props.local && <Button variant="ghost" size="icon-xs" nativeButton={false} render={<a href={blobUrl} target="_blank" rel="noreferrer" />} aria-label="Open on GitHub">
           <ExternalLinkIcon />
-        </Button>
+        </Button>}
       </div>
 
       <div className="relative min-h-0 flex-1">

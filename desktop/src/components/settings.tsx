@@ -133,7 +133,7 @@ export function Settings() {
 
         <p className="text-xs text-muted-foreground">
           Agents can edit files in the local review checkout when you ask for changes. Claude and Codex do not load your settings, hooks or MCP servers.
-          Own providers get file reading and editing, search, and git inspection tools confined to the checkout. Changes remain local; the review diff shows the fetched revision.
+          Own providers get file reading and editing, search, and git inspection tools confined to the checkout. See edits in Local changes, then use Commit and push to publish them to the PR.
           API keys are stored in ~/.pr-lens/agents.json, readable only by you.
         </p>
       </main>
