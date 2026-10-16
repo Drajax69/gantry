@@ -55,7 +55,7 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --primary: oklch(0.48 0.2 290);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
@@ -66,7 +66,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.55 0.2 290);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -90,8 +90,8 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  --primary: oklch(0.79 0.13 290);
+  --primary-foreground: oklch(0.2 0.04 290);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -101,7 +101,7 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.79 0.13 290);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -187,3 +187,38 @@
 .electron .app-bar :is(button, a, input, form, [role="tab"], [role="menu"]) {
   -webkit-app-region: no-drag;
 }
+
+/* Ticket identity carries the same playful hue family as review spaces. */
+.gantry-workspace { background: oklch(0.99 0.004 285); }
+.dark .gantry-workspace { background: oklch(0.16 0.012 285); }
+.gantry-nav-tickets { background: oklch(0.94 0.04 290); color: oklch(0.38 0.16 290); }
+.gantry-nav-reviews { background: oklch(0.94 0.035 185); color: oklch(0.36 0.07 185); }
+.dark .gantry-nav-tickets { background: oklch(0.3 0.07 290); color: oklch(0.87 0.08 290); }
+.dark .gantry-nav-reviews { background: oklch(0.29 0.045 185); color: oklch(0.87 0.07 185); }
+.gantry-ticket, .gantry-ticket-heading {
+  --ticket-surface: oklch(0.95 0.045 var(--ticket-hue));
+  --ticket-text: oklch(0.27 0.065 var(--ticket-hue));
+  --ticket-secondary: oklch(0.43 0.07 var(--ticket-hue));
+  --ticket-edge: oklch(0.77 0.09 var(--ticket-hue));
+  --ticket-accent: oklch(0.49 0.14 var(--ticket-hue));
+  background: var(--ticket-surface); color: var(--ticket-text); border-color: var(--ticket-edge);
+}
+.dark .gantry-ticket, .dark .gantry-ticket-heading {
+  --ticket-surface: oklch(0.27 0.05 var(--ticket-hue));
+  --ticket-text: oklch(0.95 0.025 var(--ticket-hue));
+  --ticket-secondary: oklch(0.81 0.045 var(--ticket-hue));
+  --ticket-edge: oklch(0.47 0.085 var(--ticket-hue));
+  --ticket-accent: oklch(0.8 0.12 var(--ticket-hue));
+}
+.gantry-ticket { transition: border-color 140ms, box-shadow 140ms; }
+.gantry-ticket:hover, .gantry-ticket-selected { border-color: var(--ticket-accent); box-shadow: 0 3px 12px oklch(0.2 0.04 var(--ticket-hue) / 0.12); }
+.gantry-ticket .text-muted-foreground { color: var(--ticket-secondary); }
+.gantry-ticket-dot { background: var(--ticket-accent); }
+.gantry-ticket-actions { border-color: var(--ticket-edge); }
+.gantry-ticket-actions button:hover { background: color-mix(in oklch, var(--ticket-accent) 12%, var(--ticket-surface)); color: var(--ticket-text); }
+.gantry-ticket button:focus-visible { outline-color: var(--ticket-accent); }
+.gantry-ticket[data-done] { --ticket-surface: oklch(0.975 0.018 var(--ticket-hue)); --ticket-edge: oklch(0.86 0.045 var(--ticket-hue)); }
+.dark .gantry-ticket[data-done] { --ticket-surface: oklch(0.23 0.025 var(--ticket-hue)); --ticket-edge: oklch(0.39 0.04 var(--ticket-hue)); }
+@media (prefers-reduced-motion: reduce) { .gantry-ticket { transition: none; } }
+
+.gantry-nav-tickets .text-muted-foreground, .gantry-nav-reviews .text-muted-foreground { color: inherit; }

@@ -239,3 +239,40 @@ test('API-only providers fail clearly without launching or creating an embedded 
   await request.patch('/api/agents',{data:{id:previous.current,current:true}});
   await request.delete(`/api/agents?id=${provider.id}`);
 });
+
+test('ticket colours are distinct, survive moves and reloads, and stay readable in both themes', async ({page,request}) => {
+  const status=await (await request.get('http://127.0.0.1:3458/api/status')).json();
+  const titles=['Refresh the exam creator','Improve graphs','Make insights clearer','Collaborative exams','Simplify question search','Export answer sheets','Online exam runtime','Preview branch changes','Answer sheet tags','Faster document uploads'];
+  const tickets=titles.map((title,i)=>({projectId:'fixture',description:'',scope:'both',run:null,pullRequests:[],artifacts:[],...status.tickets[0],id:`colour-${i}`,title,branch:`ticket/colour-${i}`,status:i<6?'backlog':i<8?'in_progress':'done',position:i}));
+  try {
+    await request.post('http://127.0.0.1:3458/__fixture',{data:{status:{...status,tickets}}});
+    await page.goto('/');
+    const cards=page.locator('article[data-ticket-id]');
+    await expect(cards).toHaveCount(10);
+    await expect.poll(()=>cards.evaluateAll(es=>new Set(es.map(e=>e.getAttribute('style'))).size)).toBe(10);
+    const original=await cards.evaluateAll(es=>Object.fromEntries(es.map(e=>[e.getAttribute('data-ticket-id'),e.getAttribute('style')])));
+    for(const theme of ['light','dark']) {
+      await page.evaluate(theme=>localStorage.setItem('theme',theme),theme);
+      await page.reload();
+      await expect(cards).toHaveCount(10);
+      await expect.poll(()=>cards.evaluateAll(es=>new Set(es.map(e=>e.getAttribute('style'))).size)).toBe(10);
+      await page.setViewportSize({width:1440,height:1000});
+      await page.screenshot({path:`e2e/.tmp/colour-board-${theme}.png`});
+      const minimum=await cards.evaluateAll(es=>{
+        const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const ctx=canvas.getContext('2d')!;
+        const lum=(color:string)=>{ctx.fillStyle=color;ctx.fillRect(0,0,1,1);const rgb=Array.from(ctx.getImageData(0,0,1,1).data).slice(0,3).map(v=>{const s=v/255;return s<=.04045?s/12.92:((s+.055)/1.055)**2.4;});return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};
+        return Math.min(...es.flatMap(e=>{const bg=lum(getComputedStyle(e).backgroundColor);return [e,e.querySelector('.text-muted-foreground')!,...e.querySelectorAll('.gantry-ticket-actions button:not(:disabled)')].map(el=>{const fg=lum(getComputedStyle(el).color);return (Math.max(fg,bg)+.05)/(Math.min(fg,bg)+.05);});}));
+      });
+      expect(minimum).toBeGreaterThanOrEqual(4.5);
+    }
+    tickets[0].status='in_progress'; tickets.reverse();
+    await request.post('http://127.0.0.1:3458/__fixture',{data:{status:{...status,tickets}}});
+    await page.reload();
+    await expect(cards).toHaveCount(10);
+    await expect.poll(()=>cards.evaluateAll(es=>Object.fromEntries(es.map(e=>[e.getAttribute('data-ticket-id'),e.getAttribute('style')])))).toEqual(original);
+    await page.setViewportSize({width:900,height:650});
+    await page.screenshot({path:'e2e/.tmp/colour-board-compact.png'});
+    await page.getByRole('button',{name:/Refresh the exam creator.*ticket\/colour-0/}).click();
+    await expect(page.getByRole('dialog').locator('header')).toHaveClass(/gantry-ticket-heading/);
+  } finally { await request.post('http://127.0.0.1:3458/__fixture',{data:{status:null}}); }
+});

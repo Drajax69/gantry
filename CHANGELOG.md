@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Give tickets persistent individual colours, with coordinated board accents and matching ticket headers in light and dark mode.
+
 - Review unpublished edits in Local changes and commit and push them to the PR directly from Gantry. Preserve local commits after failed pushes and remote refreshes.
 
 - Open GitHub pull requests in the PR Lens desktop app directly from the Pull requests board.
