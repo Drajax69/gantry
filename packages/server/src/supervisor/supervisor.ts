@@ -230,7 +230,19 @@ export class Supervisor {
       return;
     }
 
-    const desired = config.services.filter((service) => group.checkouts.some((checkout) => checkout.repositoryId === service.repository));
+    const available = config.services.filter((service) => group.checkouts.some((checkout) => checkout.repositoryId === service.repository));
+    // Reserve every address before starting services. URL references may point
+    // back to a caller without creating a readiness dependency cycle.
+    for (const service of available) {
+      const current = this.serviceRow(group.id, service.id);
+      if (current?.port && current.pid && current.pgid !== null && current.pid_claim && await ownsProcess(current.pid, current.pgid, current.pid_claim)) continue;
+      try {
+        await this.allocator.allocate(project.config.project.id, group.id, service.id, config.project.portBase, config.project.portRange, service.port);
+      } catch (error) {
+        this.saveServiceRow(group.id, service.id, { state: 'failed', error: (error as Error).message });
+      }
+    }
+    const desired = available.filter(service => !service.whenFile || fs.existsSync(path.resolve(group.checkouts.find(c => c.repositoryId === service.repository)!.path, service.whenFile)));
     for (const service of topologicalOrder(desired)) {
       const checkout = group.checkouts.find((candidate) => candidate.repositoryId === service.repository)!;
       await this.reconcileService(project, row, service, checkout);
@@ -267,8 +279,13 @@ export class Supervisor {
 
   private dependencyVars(previewId: string, service: ServiceConfig): Record<string, string> {
     const vars: Record<string, string> = {};
-    for (const id of service.dependsOn) {
-      const port = this.serviceRow(previewId, id)?.port;
+    const references = new Set(service.dependsOn);
+    for (const value of Object.values(service.env)) {
+      for (const match of value.matchAll(/\$\{(?:origin|port)\.([a-z][a-z0-9-]*)\}/g)) references.add(match[1]!);
+    }
+    for (const id of references) {
+      const allocation = this.db.prepare('SELECT port FROM port_allocations WHERE preview_id=? AND service_id=?').get(previewId, id) as { port: number } | undefined;
+      const port = allocation?.port;
       if (!port) continue;
       vars[`port.${id}`] = String(port);
       vars[`origin.${id}`] = `http://127.0.0.1:${port}`;
@@ -315,18 +332,20 @@ export class Supervisor {
     const row = this.serviceRow(preview.id, service.id);
     const environment = this.environmentFor(project.config, preview);
 
+    let ownedPort: number | null = null;
     // Healthy and current: nothing to do. This must run BEFORE port
     // allocation — the service's own listener would make its sticky port
     // look "occupied", causing a reallocation, a signature change, and an
     // endless restart loop.
     if (row?.port && row.pid && row.pgid !== null && row.pid_claim && (await ownsProcess(row.pid, row.pgid, row.pid_claim))) {
+      ownedPort = row.port;
       const signatureAtCurrentPort = await this.serviceSignature(project, preview.id, checkout.path, service, row.port, environment);
       if (row.signature === signatureAtCurrentPort) return;
     }
 
     let port: number;
     try {
-      port = await this.allocator.allocate(project.config.project.id, preview.id, service.id, project.config.project.portBase, project.config.project.portRange, service.port);
+      port = ownedPort ?? await this.allocator.allocate(project.config.project.id, preview.id, service.id, project.config.project.portBase, project.config.project.portRange, service.port);
     } catch (error) {
       this.saveServiceRow(preview.id, service.id, { state: 'failed', error: (error as Error).message, pid: null, pgid: null, pid_claim: null });
       return;

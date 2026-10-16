@@ -27,6 +27,8 @@ export const commandSchema = z
 export type CommandSpec = z.infer<typeof commandSchema>;
 
 const platformCommandOverrides = z.object({
+  /** Start this service only in checkouts containing this relative file. */
+  whenFile: z.string().min(1).refine(value => !value.startsWith('/') && !value.split(/[\\/]/).includes('..'), 'Use a relative path inside the checkout').optional(),
   install: commandSchema.optional(),
   start: commandSchema.optional(),
 });
@@ -77,6 +79,8 @@ export const serviceSchema = z.object({
   repository: z.string().min(1),
   /** `command` runs `start` verbatim. `vite`/`node`/`python` use Gantry's managed runners (banner, initServer, flask). */
   runtime: z.enum(['command', 'vite', 'node', 'python']).default('command'),
+  /** Start this service only in checkouts containing this relative file. */
+  whenFile: z.string().min(1).refine(value => !value.startsWith('/') && !value.split(/[\\/]/).includes('..'), 'Use a relative path inside the checkout').optional(),
   install: commandSchema.optional(),
   /** Required for runtime: command; managed runtimes (vite/node/python) start themselves. */
   start: commandSchema.optional(),

@@ -52,7 +52,14 @@ describe('PortAllocator', () => {
     assert.equal(allocator.existing('proj', 'preview1', 'frontend'), first);
   });
 
-  test('different previews never share a port', async () => {
+  test('services reserve distinct ports before either starts listening', async () => {
+    const { allocator } = await makeAllocator();
+    const a = await allocator.allocate('proj', 'same', 'frontend', 20000, 200);
+    const b = await allocator.allocate('proj', 'same', 'runtime', 20000, 200);
+    assert.notEqual(a, b);
+  });
+
+  test('different previews never share a port' , async () => {
     const { allocator } = await makeAllocator();
     const a = await allocator.allocate('proj', 'preview1', 'frontend', 20000, 200);
     const b = await allocator.allocate('proj', 'preview2', 'frontend', 20000, 200);

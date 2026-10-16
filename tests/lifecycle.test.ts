@@ -97,7 +97,7 @@ async function createFixtureWorkspace(): Promise<{ workspace: string; dataDir: s
     await write(path.join(repoDir, 'package.json'), JSON.stringify({ name: repo, version: '1.0.0' }));
     await write(path.join(repoDir, 'package-lock.json'), JSON.stringify({ name: repo, lockfileVersion: 3, packages: {} }));
     await write(path.join(repoDir, 'server.mjs'), SERVER_SCRIPT);
-    await write(path.join(repoDir, 'app.cjs'), "exports.app = require('node:http').createServer((_req, res) => res.end(JSON.stringify({ok:true, role:process.env.ROLE, port:Number(process.env.PORT)})));");
+    await write(path.join(repoDir, 'app.cjs'), "exports.app = require('node:http').createServer((_req, res) => res.end(JSON.stringify({ok:true, role:process.env.ROLE, port:Number(process.env.PORT), frontend:process.env.FRONTEND_URL})));");
     await write(path.join(repoDir, 'AGENTS.md'), `# ${repo} instructions\nBe tidy.\n`);
     await write(path.join(workspace, 'AGENTS.md'), '# Workspace instructions\n');
     await fs.rm(path.join(repoDir, 'README.md'), { force: true });
@@ -141,6 +141,7 @@ async function createFixtureWorkspace(): Promise<{ workspace: string; dataDir: s
       '    healthUrl: http://127.0.0.1:${port}/health',
       '    env:',
       '      ROLE: backend',
+      '      FRONTEND_URL: ${origin.frontend}',
     ].join('\n'),
   );
   return { workspace, dataDir, cleanup: outer.cleanup };
@@ -243,7 +244,7 @@ describe('full fixture lifecycle', () => {
     const frontendHealth = await (await fetch(`http://127.0.0.1:${frontendPort}/health`)).json() as { role: string; port: number };
     assert.deepEqual(frontendHealth, { ok: true, role: 'frontend', port: frontendPort, backend: `http://127.0.0.1:${backendPort}` });
     const backendHealth = await (await fetch(`http://127.0.0.1:${backendPort}/health`)).json() as { role: string; port: number };
-    assert.deepEqual(backendHealth, { ok: true, role: 'backend', port: backendPort });
+    assert.deepEqual(backendHealth, { ok: true, role: 'backend', port: backendPort, frontend: `http://127.0.0.1:${frontendPort}` });
 
     // Managed runtimes must retain their process across discovery passes.
     const backendBefore = app.db.prepare("SELECT pid FROM preview_services WHERE preview_id=? AND service_id='backend'").get(primary.id) as { pid: number };

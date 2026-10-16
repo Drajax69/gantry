@@ -164,7 +164,7 @@ One engine (`packages/shared/src/config/vars.ts`) serves config values, hooks, h
 | Variable | Value |
 | -------- | ----- |
 | `${port}` | Allocated port for this service |
-| `${port.<id>}`, `${origin.<id>}` | Allocated port and loopback HTTP origin of a declared dependency |
+| `${port.<id>}`, `${origin.<id>}` | Allocated port and loopback HTTP origin of a configured service |
 | `${workspace}` | Workspace root |
 | `${branch}` | Preview branch (`__primary__` for the main workspace) |
 | `${project.id}` | Project id |
@@ -338,7 +338,7 @@ With this config, starting a ticket titled "Add promo banners" creates `ticket/a
 
 ### Connecting services within a preview
 
-Declare upstream services in `dependsOn`, then reference their allocated ports in service `env` values. Gantry supplies `${origin.<id>}` (the loopback HTTP origin without a path) and `${port.<id>}` for declared dependencies. These values override env files, and changes to dependency ports restart the consuming service.
+Reference configured services in `env` with `${origin.<id>}` (the loopback HTTP origin without a path) and `${port.<id>}`. Addresses are reserved before startup, so callbacks and browser CORS origins can reference callers without circular readiness dependencies. Use `dependsOn` only for services that must be healthy before startup. Optional `whenFile: exam-runtime/server.ts` starts a service only in checkouts containing that relative file. These values override env files, and changes to dependency ports restart the consuming service.
 
 ```yaml
 services:

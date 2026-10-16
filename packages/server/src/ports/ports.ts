@@ -18,9 +18,9 @@ export function portFree(port: number, host = '127.0.0.1'): Promise<boolean> {
 export class PortAllocator {
   constructor(private readonly db: Database) {}
 
-  private usedByOthers(projectId: string, previewId: string): Set<number> {
-    const rows = this.db.prepare('SELECT project_id, preview_id, port FROM port_allocations').all() as { project_id: string; preview_id: string; port: number }[];
-    return new Set(rows.filter((row) => !(row.project_id === projectId && row.preview_id === previewId)).map((row) => row.port));
+  private usedByOthers(projectId: string, previewId: string, serviceId: string): Set<number> {
+    const rows = this.db.prepare('SELECT project_id, preview_id, service_id, port FROM port_allocations').all() as { project_id: string; preview_id: string; service_id: string; port: number }[];
+    return new Set(rows.filter((row) => !(row.project_id === projectId && row.preview_id === previewId && row.service_id === serviceId)).map((row) => row.port));
   }
 
   existing(projectId: string, previewId: string, serviceId: string): number | null {
@@ -36,7 +36,7 @@ export class PortAllocator {
   async allocate(projectId: string, previewId: string, serviceId: string, base: number, range: number, fixedPort?: number): Promise<number> {
     const existing = this.existing(projectId, previewId, serviceId);
     if (existing && (await portFree(existing))) return existing;
-    const used = this.usedByOthers(projectId, previewId);
+    const used = this.usedByOthers(projectId, previewId, serviceId);
     if (fixedPort) {
       if (used.has(fixedPort)) throw new Error(`Port ${fixedPort} is already assigned to another preview service`);
       if (!(await portFree(fixedPort))) throw new Error(`Port ${fixedPort} is occupied by another process; stop it or choose another port`);
