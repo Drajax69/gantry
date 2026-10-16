@@ -304,6 +304,9 @@ export class Supervisor {
     environment: EnvironmentConfig | null,
   ): Promise<string> {
     const hash = createHash('sha256');
+    if (service.runtime === 'vite') {
+      for (const file of ['vite-runner.cjs', 'preview-diagnostics.js']) hash.update(await fsp.readFile(path.join(runnersDir(), file)));
+    }
     hash.update(JSON.stringify({ service, port, environment, dependencies: this.dependencyVars(previewId, service) }));
     const repoPath = path.resolve(project.workspace, project.config.repositories.find((repo) => repo.id === service.repository)?.path ?? '.');
     for (const dir of new Set([checkoutPath, repoPath])) {

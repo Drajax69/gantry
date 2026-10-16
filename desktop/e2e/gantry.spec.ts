@@ -353,3 +353,57 @@ test('sidebar embeds Main and in-progress ticket previews, excluding backlog and
     await expect(page.frameLocator('iframe[title="Main preview"]').getByRole('heading')).toBeVisible();
   } finally {await request.post('http://127.0.0.1:3458/__fixture',{data:{status:null}});}
 });
+
+test('preview developer tools capture console, errors, fetch and XHR without reloading the page', async ({page,request}) => {
+  const original=await (await request.get('http://127.0.0.1:3458/api/status')).json();
+  const preview={...original.previews[0],id:'main-diagnostics',isPrimary:true,status:'Running',branch:'__primary__',checkouts:[]};
+  const instrumentation=fs.readFileSync(path.resolve('../packages/server/runners/preview-diagnostics.js'),'utf8');
+  await page.route('http://127.0.0.1:6500/**',route=> {
+    const url=new URL(route.request().url());
+    if(url.pathname==='/api/fail') return route.fulfill({status:503,contentType:'application/json',body:'{"ok":false}'});
+    if(url.pathname==='/api/ok') return route.fulfill({status:200,contentType:'application/json',body:'{"ok":true}'});
+    return route.fulfill({contentType:'text/html',body:`<script>${instrumentation}</script><h1>Diagnostic fixture</h1><label>Draft<input></label><button id="run">Run requests</button><script>
+      console.log('Startup message');
+      document.querySelector('#run').onclick=()=>{
+        console.warn('Example warning');
+        console.log('Structured value',{count:1});
+        fetch('/api/fail').then(r=>r.json()).then(body=>console.log('Response body intact',body.ok));
+        const xhr=new XMLHttpRequest();xhr.open('GET','/api/ok');xhr.send();
+        Promise.reject(new Error('Example rejected promise'));
+        throw new Error('Example uncaught error');
+      };
+    </script>`});
+  });
+  try {
+    await request.post('http://127.0.0.1:3458/__fixture',{data:{status:{...original,previews:[preview]}}});
+    await page.goto('/');
+    await page.getByRole('navigation',{name:'Previews',exact:true}).getByRole('button',{name:'Main',exact:true}).click();
+    const frame=page.frameLocator('iframe[title="Main preview"]');
+    await frame.getByLabel('Draft').fill('keep this draft');
+    await page.getByRole('button',{name:'Console & Network',exact:true}).click();
+    const panel=page.getByRole('complementary',{name:'Preview developer tools'});
+    await expect(panel.getByText('Startup message',{exact:true}).first()).toBeVisible();
+    await frame.getByRole('button',{name:'Run requests'}).click();
+    await expect(panel.getByText('Example warning',{exact:true}).first()).toBeVisible();
+    await expect(panel.locator('summary').filter({hasText:'Example uncaught error'})).toBeVisible();
+    await expect(panel.locator('summary').filter({hasText:'Example rejected promise'})).toBeVisible();
+    await expect(panel.locator('summary').filter({hasText:'Response body intact false'})).toBeVisible();
+    await panel.getByLabel('Filter logs').fill('Structured');
+    await expect(panel.locator('summary')).toHaveCount(1);
+    await panel.getByLabel('Filter logs').fill('');
+    await panel.getByRole('tab',{name:/Network/}).click();
+    await expect(panel.locator('summary').filter({hasText:'/api/fail'})).toContainText('503');
+    await expect(panel.locator('summary').filter({hasText:'/api/ok'})).toContainText('200');
+    await panel.getByLabel('Errors only').check();
+    await expect(panel.locator('summary')).toHaveCount(1);
+    await page.setViewportSize({width:1440,height:900});
+    await page.screenshot({path:'e2e/.tmp/preview-network-panel.png'});
+    await page.setViewportSize({width:900,height:650});
+    await page.screenshot({path:'e2e/.tmp/preview-network-panel-compact.png'});
+    await panel.getByRole('button',{name:'Clear logs'}).click();
+    await expect(panel.locator('summary')).toHaveCount(0);
+    await panel.getByRole('button',{name:'Close developer tools'}).click();
+    await expect(panel).toHaveCount(0);
+    await expect(frame.getByLabel('Draft')).toHaveValue('keep this draft');
+  } finally {await request.post('http://127.0.0.1:3458/__fixture',{data:{status:null}});}
+});

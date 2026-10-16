@@ -95,7 +95,19 @@ function autoLoginPlugin() {
   const viteEntry = typeof exportEntry === 'string' ? path.resolve(path.dirname(vitePackage), exportEntry) : localRequire.resolve('vite');
   const vite = await import(pathToFileURL(viteEntry).href);
   const createServer = vite.createServer || vite.default?.createServer;
-  const plugins = [];
+  const plugins = [{
+    name: 'gantry-preview-diagnostics',
+    configureServer(server) {
+      server.middlewares.use('/@gantry/diagnostics.js', (_req, res) => {
+        res.setHeader('Content-Type', 'text/javascript');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(fs.readFileSync(path.join(__dirname, 'preview-diagnostics.js'), 'utf8'));
+      });
+    },
+    transformIndexHtml: { order: 'pre', handler() {
+      return [{tag:'script',attrs:{src:'/@gantry/diagnostics.js'},injectTo:'head-prepend'}];
+    } },
+  }];
   if (banner) plugins.push(bannerPlugin());
   const loginPlugin = autoLoginPlugin();
   if (loginPlugin) plugins.push(loginPlugin);
