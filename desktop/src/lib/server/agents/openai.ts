@@ -1,6 +1,6 @@
 import "server-only";
 import type { Driver } from "./driver";
-import { runTool, TOOL_SPECS, ticketTools, runTicketTool } from "./repo-tools";
+import { runTool, TOOL_SPECS } from "./repo-tools";
 
 /** OpenAI-style chat message, as sent to /chat/completions. */
 type Msg =
@@ -32,7 +32,7 @@ const MAX_ROUNDS = 30;
  * Ollama, LM Studio, vLLM… The conversation is kept by PR Lens, and the model gets repository inspection and editing
  * repo tools that run here.
  */
-export const openai: Driver = async ({ agent, cwd, system, prompt, history, hooks, signal, checkouts }) => {
+export const openai: Driver = async ({ agent, cwd, system, prompt, history, hooks, signal }) => {
   const messages: Msg[] = [
     { role: "system", content: `${system}\nUse the tools to read the code; you can't see it otherwise.` },
     ...history.map((t): Msg => (t.role === "user" ? { role: "user", content: t.text } : { role: "assistant", content: t.text })),
@@ -49,7 +49,7 @@ export const openai: Driver = async ({ agent, cwd, system, prompt, history, hook
           "Content-Type": "application/json",
           ...(agent.apiKey ? { Authorization: `Bearer ${agent.apiKey}` } : {}),
         },
-        body: JSON.stringify({ model: agent.model, messages, tools: checkouts ? ticketTools : TOOL_SPECS, stream: true }),
+        body: JSON.stringify({ model: agent.model, messages, tools: TOOL_SPECS, stream: true }),
       });
       if (!res.ok || !res.body) {
         const body = await res.text().catch(() => "");
@@ -97,7 +97,7 @@ export const openai: Driver = async ({ agent, cwd, system, prompt, history, hook
       if (!used.length) return;
       messages.push({ role: "assistant", content: text || null, tool_calls: used });
       for (const c of used) {
-        const { detail, output } = await (checkouts ? runTicketTool(checkouts, c.function.name, c.function.arguments, signal) : runTool(cwd, c.function.name, c.function.arguments));
+        const { detail, output } = await runTool(cwd, c.function.name, c.function.arguments);
         hooks.tool({ name: c.function.name, detail });
         messages.push({ role: "tool", tool_call_id: c.id, content: output });
       }

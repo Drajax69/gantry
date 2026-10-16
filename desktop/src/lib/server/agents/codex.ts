@@ -19,7 +19,7 @@ interface CodexLine {
   };
 }
 
-export const codex: Driver = async ({ agent, cwd, system, prompt, sessionId, history, hooks, signal, checkouts }) => {
+export const codex: Driver = async ({ agent, cwd, system, prompt, sessionId, history, hooks, signal }) => {
   // Allow edits inside the review workspace,
   // and none of your ~/.codex config, so no MCP servers, profiles or execpolicy rules.
   // Login still comes from ~/.codex.
@@ -29,10 +29,6 @@ export const codex: Driver = async ({ agent, cwd, system, prompt, sessionId, his
     "--skip-git-repo-check",
     "--sandbox", "workspace-write",
   ];
-  if (checkouts) {
-    for (const c of checkouts) args.push("--add-dir", c.path);
-    args.push("-c", "sandbox_workspace_write.network_access=true");
-  }
   if (agent.model) args.push("--model", agent.model);
   // Codex has no flag for extra system instructions, so a new session gets them up front.
   if (sessionId) args.push("resume", sessionId, "-");

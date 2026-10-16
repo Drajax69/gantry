@@ -153,13 +153,6 @@ export function stopRun(id: string): boolean {
 
 function systemPrompt(t: PreparedTarget): string {
   const { info } = t;
-  if (t.ticket) return [
-    `You are implementing Gantry ticket: ${info.title}.`, t.description, t.ticket.instructions,
-    `Work only on branch ${t.ticket.branch} in these prepared ticket checkouts:`,
-    ...t.ticket.checkouts.map(c => `${c.repositoryId}: ${c.path}`),
-    'Read workspace and repository AGENTS.md instructions before changes. Preserve unrelated work. Implement the requested feature, run relevant checks, and report outcomes. Use repository IDs to select the checkout for API tools.',
-    'The workflow is: prepare worktrees, implement the feature, validate, then create draft pull requests when the user asks. Never deploy or merge. Do not commit, push, or create PRs until requested. When requested, inspect diffs, commit only ticket-related files, push the ticket branch without force, reuse existing PRs or create draft PRs with gh pr create, and return every PR URL. Stop and explain if validation fails. PRs on the ticket branch are linked automatically after remote sync.',
-  ].join('\n');
   const diffHint = info.baseSha
     ? `The change under review is \`git diff ${info.baseSha} ${info.headSha}\`. Use \`git diff ${info.baseSha} HEAD -- <path>\` to see what changed in a file and \`git log ${info.baseSha}..HEAD\` for its commits.`
     : "There is no diff; the user is browsing the repository.";
@@ -270,7 +263,6 @@ function answer(t: PreparedTarget, user: ChatMessage, agentId?: string) {
   drivers[agent.kind]({
     agent,
     cwd: t.worktree,
-    checkouts: t.ticket?.checkouts,
     system: systemPrompt(t),
     prompt: promptFor(user.text, anchor, user.quote),
     sessionId,

@@ -23,7 +23,6 @@ export interface RunInput {
   agent: StoredAgent;
   /** The editable local checkout under review. */
   cwd: string;
-  checkouts?: { repositoryId: string; path: string }[];
   system: string;
   prompt: string;
   /** The session this agent had for this chat, if any. */

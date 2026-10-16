@@ -35,6 +35,7 @@ export default defineConfig({
     env: {
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
       PR_LENS_HOME: home,
+      CLAUDE_CONFIG_DIR: path.resolve(__dirname, "e2e/.tmp/claude-config"),
       PR_LENS_GANTRY_URL: "http://127.0.0.1:3458",
       PORT: String(PORT),
       HOSTNAME: "127.0.0.1",

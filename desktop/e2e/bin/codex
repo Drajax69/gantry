@@ -6,6 +6,23 @@ if (process.argv[2] === "--version") {
   console.log("codex-cli 0.0.0-fixture");
   process.exit(0);
 }
+if (process.argv[2] === "app-server") {
+  const readline = require("node:readline");
+  const threadsFile = path.join(process.env.PR_LENS_HOME, "codex-threads.json");
+  readline.createInterface({input:process.stdin}).on("line", line => {
+    const message = JSON.parse(line);
+    if (!message.id) return;
+    fs.appendFileSync(path.join(process.env.PR_LENS_HOME,"codex-protocol.jsonl"),JSON.stringify(message)+"\n");
+    let result = {};
+    if (message.method === "thread/start") {
+      const threads = fs.existsSync(threadsFile) ? JSON.parse(fs.readFileSync(threadsFile,"utf8")) : [];
+      const thread = {id:require("node:crypto").randomUUID(),...message.params};
+      threads.push(thread); fs.writeFileSync(threadsFile,JSON.stringify(threads));
+      result = {thread};
+    }
+    process.stdout.write(JSON.stringify({id:message.id,result})+"\n");
+  });
+} else {
 let prompt = "";
 process.stdin.on("data", (d) => (prompt += d));
 process.stdin.on("end", () => {
@@ -19,3 +36,5 @@ process.stdin.on("end", () => {
   out({ type: "item.completed", item: { id: "i1", type: "agent_message", text: resumed ? "Codex again: still fine." : "Codex here: `src/math.ts:3` guards NaN." } });
   out({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 5 } });
 });
+
+}

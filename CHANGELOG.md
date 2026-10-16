@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-- Ship the unified Gantry desktop app with ticket dialogs, column dragging, shared provider chat, and integrated PR review.
+- Ship the unified Gantry desktop app with ticket dialogs, column dragging, shared provider settings and external ticket conversations, and integrated PR review.
 - Detect repositories for first-run workspace setup and prepare ticket worktrees independently of any provider.
 - Keep personal state out of the source repository.
 

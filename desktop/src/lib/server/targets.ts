@@ -11,7 +11,6 @@ import { httpError } from "./http";
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 export interface PreparedTarget {
-  ticket?: { branch: string; checkouts: { repositoryId: string; path: string }[]; instructions: string };
   info: TargetInfo;
   repoDir: string;
   worktree: string;

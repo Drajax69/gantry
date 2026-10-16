@@ -68,8 +68,8 @@ export function Settings() {
         <section className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Agents</h1>
           <p className="text-sm text-muted-foreground">
-            Who answers your questions. Switch any time from the chat header. Each agent keeps its own session per PR,
-            and one that joins a chat late gets the conversation so far.
+            Choose the provider for new ticket conversations and PR reviews. Tickets open in Codex or Claude Code,
+            and keep their saved conversation when you change the default. API providers are available for PR reviews.
           </p>
         </section>
 

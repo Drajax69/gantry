@@ -24,7 +24,7 @@ const ALLOWED_TOOLS = [
   "Bash(git grep:*)", "Bash(ls:*)", "Bash(wc:*)",
 ].join(",");
 
-export const claude: Driver = async ({ agent, cwd, system, prompt, sessionId, history, hooks, signal, checkouts }) => {
+export const claude: Driver = async ({ agent, cwd, system, prompt, sessionId, history, hooks, signal }) => {
   // The checkout is untrusted code under review, so lock the child down: --restricted ignores
   // user/project/local settings (no repo hooks or allow rules, none of your pre-approved
   // tools), --strict-mcp-config with no config loads no MCP servers, and dontAsk denies
@@ -38,10 +38,9 @@ export const claude: Driver = async ({ agent, cwd, system, prompt, sessionId, hi
     "--tools", "Read,Grep,Glob,Edit,Write,Bash",
     "--strict-mcp-config",
     "--permission-mode", "dontAsk",
-    "--allowedTools", checkouts ? "Read,Grep,Glob,Edit,Write,Bash" : ALLOWED_TOOLS,
+    "--allowedTools", ALLOWED_TOOLS,
     "--append-system-prompt", system,
   ];
-  if (checkouts) for (const c of checkouts) args.push("--add-dir", c.path);
   if (agent.model) args.push("--model", agent.model);
   if (sessionId) args.push("--resume", sessionId);
 

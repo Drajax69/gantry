@@ -112,8 +112,8 @@ Agents are launched as detached children of your user, inheriting your environme
 
 See [SECURITY.md](../SECURITY.md) for how to report a vulnerability privately.
 
-## Desktop ticket chat
+## Desktop conversations
 
-Desktop provider credentials and conversations are local files outside the repository. API keys are permission-restricted but not encrypted by an OS keychain. Content sent to an external provider leaves the device as part of that provider request.
+Desktop provider credentials and conversation associations are local files outside the repository. API keys are permission-restricted but not encrypted by an OS keychain. Content sent to an external provider leaves the device as part of that provider request.
 
-Ticket chat intentionally allows development commands inside prepared checkouts. API-provider commands are subprocesses, not an operating-system sandbox; Claude allows development shell commands and Codex uses workspace-write with explicit checkout directories and network access. Use trusted repositories and review agent changes. Only an explicit publication request (including the Create PR button) instructs the agent to commit, push and create draft PRs. This instruction is an agent policy, not a security boundary. Review chat retains its narrower editing tools.
+Ticket conversations open in the external provider, which owns its permissions and approval flow. Codex sessions start with workspace-write access to the prepared checkouts and on-request approvals. Claude Code uses its own permission settings. Opening a conversation does not send an agent turn or publish changes. PR review retains its editing tools; its displayed diff describes the fetched commit, not uncommitted edits in the review checkout.

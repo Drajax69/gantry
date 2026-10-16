@@ -4,7 +4,7 @@ Gantry is a local desktop workspace for taking a ticket from an idea to a pull r
 
 **Ticket → worktrees → feature → draft PR → review**
 
-The Electron app combines a workspace switcher, a draggable ticket board, coding-agent chat, branch previews, and PR review. Each ticket opens in a large dialog with Details, Chat, and Preview tabs. Related pull requests stay together in the ticket's review space.
+The Electron app combines a workspace switcher, a draggable ticket board, external coding-agent conversations, branch previews, and PR review. Each ticket opens in a large dialog with Details and Preview tabs. Related pull requests stay together in the ticket's review space.
 
 Configure your provider once in Settings. Ticket chat and PR review use the same provider and model: Claude Code, Codex CLI, or an OpenAI-compatible API such as OpenRouter or a local model server.
 
@@ -34,8 +34,8 @@ Build output depends on your Mac architecture. The app is currently unsigned; th
 1. Choose a provider in **Settings**. This choice is shared throughout the app.
 2. **Add workspace** using a Git repository folder or a folder containing repositories. Gantry discovers repositories and writes a local `gantry.yaml` if none exists. Existing configuration is preserved.
 3. Create a ticket with a title, notes, and optional existing branch. Drag it between Backlog, In progress, and Done, or use the Stage control in Details.
-4. **Open chat**. Sending a message creates or reuses worktrees for the ticket branch. **Implement feature** starts work on the ticket; you can also give your own instructions.
-5. **Create PR** asks the agent to validate, commit ticket-related changes, push without force, and create draft PRs or reuse existing ones. This action publishes to GitHub using your credentials; opening chat alone does not.
+4. **Open chat** creates or reuses ticket worktrees and opens a persistent conversation in the Codex app or Claude Code in Terminal. Each ticket keeps its conversation and provider when your default changes. Gantry does not embed ticket chat.
+5. Ask the external agent to implement the feature, validate it, and create or update a draft PR. Gantry discovers PRs matching the ticket branch for integrated review. Opening chat does not start an agent turn or publish changes. API-only providers remain available for PR review; ticket conversations require Codex or Claude.
 6. Open **Review** to see the ticket's PRs together. **Back** returns to its ticket. Finished tickets retain their history but have no visible review spaces or previews.
 
 Existing PRs are associated by repository and exact branch name. Use that branch when creating a ticket for work already underway. Remote sync discovers PRs; its progress and errors appear in the workspace activity.

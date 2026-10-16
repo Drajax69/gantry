@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test';
-import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AddressInfo } from 'node:net';
 
 test('Gantry ticket, preview and review workflow stays inside Gantry', async ({ page }) => {
   const initialSpaces = await (await page.request.get('/api/spaces')).json();
@@ -164,74 +162,80 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
 });
 
 
-test('tickets drag between columns and open persistent chat with the shared provider', async ({page,request}) => {
+test('tickets drag between columns and reopen one external Codex conversation', async ({page,request}) => {
   await page.goto('/');
   const card = page.locator('article').filter({hasText:'Test the unified workspace'});
   await card.dragTo(page.getByRole('region',{name:'Backlog',exact:true}));
   await expect(page.getByRole('region',{name:'Backlog',exact:true}).locator('article')).toHaveCount(1);
   await page.reload();
   await expect(page.getByRole('region',{name:'Backlog',exact:true}).locator('article')).toHaveCount(1);
-  await card.dragTo(page.getByRole('region',{name:'In progress',exact:true}));
-  await expect(page.getByRole('region',{name:'In progress',exact:true}).locator('article')).toHaveCount(1);
   const agents = await (await request.get('/api/agents')).json();
   const codex = agents.agents.find((a:{kind:string}) => a.kind === 'codex') || await (await request.post('/api/agents',{data:{kind:'codex',name:'Codex'}})).json();
-  expect((await request.patch('/api/agents',{data:{id:codex.id,current:true}})).ok()).toBeTruthy();
+  await request.patch('/api/agents',{data:{id:codex.id,current:true}});
   await page.reload();
+  const launches = path.resolve('e2e/.tmp/home/external-launches.jsonl');
   await page.getByRole('button',{name:'Open chat for Test the unified workspace'}).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await expect(page.getByRole('button',{name:'Agent: Codex'})).toBeVisible();
-  await expect(page.getByText('Same provider as reviews')).toBeVisible();
-  await page.setViewportSize({width:900,height:650});
-  await page.getByRole('button',{name:'Agent: Codex'}).click();
-  const menu = page.getByRole('menu');
-  await expect(menu.getByRole('menuitemradio',{name:/Codex/})).toBeVisible();
-  const menuBox = (await menu.boundingBox())!;
-  const dialogBox = (await page.getByRole('dialog').boundingBox())!;
-  expect(menuBox.x).toBeGreaterThanOrEqual(dialogBox.x);
-  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(dialogBox.x + dialogBox.width);
-  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(dialogBox.y + dialogBox.height);
-  await page.screenshot({path:'e2e/.tmp/provider-menu-compact.png'});
-  await page.getByRole('button',{name:'Agent: Codex'}).click();
-  const response = await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'send',text:'Explain the fixture'}});
-  expect(response.ok()).toBeTruthy();
-  await expect.poll(async () => (await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'load'}})).json()).messages.some((m:{role:string})=>m.role==='assistant')).toBe(true);
-  await page.reload();
-  await page.getByRole('button',{name:'Open chat for Test the unified workspace'}).click();
-  await expect(page.getByText('Explain the fixture',{exact:true})).toBeVisible();
-  await page.evaluate(() => document.fonts.ready);
-  await page.screenshot({path:'e2e/.tmp/ticket-chat.png'});
-  await page.keyboard.press('Escape');
+  await expect(page.getByText('Opened this ticket in Codex',{exact:true})).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('button',{name:'Open chat for Test the unified workspace'})).toBeFocused();
-  expect((await request.post('/api/ticket-chat',{headers:{Origin:'https://other.example'},data:{ticketId:'ticket-1',action:'send',text:'No'}})).status()).toBe(403);
+  const initial = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'load'}})).json();
+  expect(initial.conversation.provider).toBe('codex');
+  const id = initial.conversation.sessionId;
+  expect(id).toMatch(/^[a-f0-9-]{36}$/);
+  const protocol = fs.readFileSync(path.resolve('e2e/.tmp/home/codex-protocol.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
+  expect(protocol.filter(c=>c.method==='thread/start')).toHaveLength(1);
+  expect(protocol.some(c=>c.method==='turn/start')).toBe(false);
+  expect(protocol.find(c=>c.method==='thread/start').params.developerInstructions).toContain('Updated ticket details persist after reload.');
+  await request.patch('/api/agents',{data:{id:'claude',current:true}});
+  const responses = await Promise.all([1,2].map(()=>request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})));
+  for (const response of responses) expect((await response.json()).conversation.sessionId).toBe(id);
+  expect(fs.readFileSync(launches,'utf8')).toContain(id);
+  await page.reload();
+  await page.getByRole('button',{name:'Edit ticket Test the unified workspace'}).click();
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  await expect(page.getByRole('tab',{name:'Chat',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('textbox',{name:/Ask/})).toHaveCount(0);
+  await expect(page.getByText(/Linked to Codex/)).toBeVisible();
+  await page.setViewportSize({width:900,height:650});
+  await page.screenshot({path:'e2e/.tmp/external-conversation-compact.png'});
+  await page.keyboard.press('Escape');
+  expect((await request.post('/api/ticket-chat',{headers:{Origin:'https://other.example'},data:{ticketId:'ticket-1',action:'open'}})).status()).toBe(403);
+  expect((await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'send',text:'Do not run'}})).status()).toBe(400);
   await request.patch('/api/agents',{data:{id:agents.current,current:true}});
 });
 
+test('Claude conversation uses one session ID and resumes it; launch failures retain association', async ({request}) => {
+  const home = path.resolve('e2e/.tmp/home');
+  const recordFile = path.join(home,'ticket-conversations/ticket-1.json');
+  fs.unlinkSync(recordFile); // Reset only this disposable fixture's association.
+  await request.patch('/api/agents',{data:{id:'claude',current:true}});
+  fs.writeFileSync(path.join(home,'fail-external-launch'),'fixture');
+  expect((await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).ok()).toBe(false);
+  const failed = JSON.parse(fs.readFileSync(recordFile,'utf8'));
+  fs.unlinkSync(path.join(home,'fail-external-launch'));
+  const first = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
+  expect(first.conversation.sessionId).toBe(failed.sessionId);
+  expect(first.conversation.provider).toBe('claude');
+  const sessionDir=path.resolve('e2e/.tmp/claude-config/projects/fixture');
+  fs.mkdirSync(sessionDir,{recursive:true});
+  fs.writeFileSync(path.join(sessionDir,failed.sessionId+'.jsonl'),'{}');
+  const reopened = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
+  expect(reopened.conversation.sessionId).toBe(failed.sessionId);
+  const calls=fs.readFileSync(path.join(home,'external-launches.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
+  expect(JSON.stringify(calls.at(-1))).toContain('--resume');
+  expect(JSON.stringify(calls.at(-1))).toContain('Updated ticket details persist after reload.');
+  expect(JSON.stringify(calls.at(-1))).toContain(failed.sessionId);
+  expect(JSON.stringify(calls.at(-1))).toContain('custom title');
+});
 
-test('ticket API provider edits the worktree and runs validation commands', async ({request}) => {
-  const before = await (await request.get('/api/agents')).json();
-  const server = http.createServer(async (req,res) => {
-    let raw=''; for await (const chunk of req) raw += chunk;
-    const body=JSON.parse(raw);
-    const results=body.messages.filter((m:{role:string})=>m.role==='tool');
-    res.setHeader('Content-Type','text/event-stream');
-    const call = results.length === 0 ? {name:'write_file',arguments:JSON.stringify({repository:'frontend',path:'ticket-feature.txt',content:'implemented in ticket'})} : {name:'run_command',arguments:JSON.stringify({repository:'frontend',command:process.execPath,args:['-e',"process.stdout.write(require('fs').readFileSync('ticket-feature.txt','utf8'))"]})};
-    const delta=results.length < 2 ? {tool_calls:[{index:0,id:`ticket-call-${results.length}`,function:call}]} : {content:results[1].content.includes('implemented in ticket')?'Ticket validation passed.':'Validation failed.'};
-    res.end(`data: ${JSON.stringify({choices:[{delta}]})}\n\ndata: [DONE]\n\n`);
-  });
-  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
-  let agentId='';
-  try {
-    const agent=await (await request.post('/api/agents',{data:{kind:'openai',name:'Ticket fixture',model:'fake-model',baseUrl:`http://127.0.0.1:${(server.address() as AddressInfo).port}`}})).json();
-    agentId=agent.id;
-    await request.patch('/api/agents',{data:{id:agentId,current:true}});
-    const sent=await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'send',text:'Implement and validate the ticket fixture'}});
-    expect(sent.ok(),await sent.text()).toBeTruthy();
-    await expect.poll(async()=> (await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'load'}})).json()).messages.some((m:{text:string})=>m.text==='Ticket validation passed.')).toBe(true);
-    expect(fs.readFileSync(path.resolve('e2e/.tmp/work/ticket-feature.txt'),'utf8')).toBe('implemented in ticket');
-  } finally {
-    server.close();
-    await request.patch('/api/agents',{data:{id:before.current,current:true}});
-    if(agentId) await request.delete(`/api/agents?id=${agentId}`);
-  }
+test('API-only providers fail clearly without launching or creating an embedded chat', async ({request}) => {
+  const home=path.resolve('e2e/.tmp/home');
+  fs.unlinkSync(path.join(home,'ticket-conversations/ticket-1.json'));
+  const previous = await (await request.get('/api/agents')).json();
+  const provider = await (await request.post('/api/agents',{data:{kind:'openai',name:'API fixture',baseUrl:'http://127.0.0.1:9',model:'fixture'}})).json();
+  const response=await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}});
+  expect(response.status()).toBe(409);
+  expect((await response.json()).error).toContain('API endpoint');
+  expect(fs.existsSync(path.join(home,'ticket-conversations/ticket-1.json'))).toBe(false);
+  await request.patch('/api/agents',{data:{id:previous.current,current:true}});
+  await request.delete(`/api/agents?id=${provider.id}`);
 });

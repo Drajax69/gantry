@@ -15,7 +15,7 @@ import { api, spaceHref } from "@/lib/client/api";
 import { gantry, type ProjectView, type StatusView, type TicketView } from "@/lib/client/gantry";
 
 import { TicketDialog } from "./ticket-dialog";
-import { TicketChat, ticketChatRequest } from "./ticket-chat";
+import { TicketConversation, ticketChatRequest, openTicketChat } from "./ticket-chat";
 
 type Area = "tickets" | "reviews";
 const labels: Record<string, string> = { backlog: "Backlog", in_progress: "In progress", done: "Done" };
@@ -33,7 +33,7 @@ export function GantryWorkspace() {
   const [projectId, setProjectId] = useState("");
   const [area, setArea] = useState<Area>("tickets");
   const [selected, setSelected] = useState<string | null>(null);
-  const [ticketTab, setTicketTab] = useState<"details" | "chat" | "preview">("details");
+  const [ticketTab, setTicketTab] = useState<"details" | "preview">("details");
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropColumn, setDropColumn] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -169,19 +169,19 @@ export function GantryWorkspace() {
                     <span className="flex max-w-full items-center gap-1.5 text-xs text-muted-foreground"><GitBranchIcon className="size-3 shrink-0" /><span className="truncate font-mono">{t.branch}</span></span>
                     {t.run && <span className="text-xs text-muted-foreground">{t.run.agent} · {t.run.state}</span>}
                   </button>
-                  <div className="flex flex-wrap gap-1 border-t px-2 py-1"><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, false, true)} aria-label={`Edit ticket ${t.title}`}>Edit</Button><Button size="sm" variant="ghost" onClick={() => { openTicket(t.id); setTicketTab("chat"); }} aria-label={`Open chat for ${t.title}`}><MessageSquareIcon />Open chat</Button>{t.status !== "done" && <><Button size="sm" variant="ghost" disabled={busy || !t.reviewSpaceId} onClick={() => void review([], t)} aria-label={`Open review space for ${t.title}`}><GitPullRequestIcon />Review<ArrowUpRightIcon /></Button><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, true)} aria-label={`Preview ${t.title}`}><MonitorIcon />Preview</Button></>}</div>
+                  <div className="flex flex-wrap gap-1 border-t px-2 py-1"><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, false, true)} aria-label={`Edit ticket ${t.title}`}>Edit</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => openTicketChat(t.id))} aria-label={`Open chat for ${t.title}`}><MessageSquareIcon />Open chat</Button>{t.status !== "done" && <><Button size="sm" variant="ghost" disabled={busy || !t.reviewSpaceId} onClick={() => void review([], t)} aria-label={`Open review space for ${t.title}`}><GitPullRequestIcon />Review<ArrowUpRightIcon /></Button><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, true)} aria-label={`Preview ${t.title}`}><MonitorIcon />Preview</Button></>}</div>
                 </article>)}</div>
                 {!column.length && <p className="py-6 text-xs text-muted-foreground">{status === "backlog" ? "New tickets start here." : status === "in_progress" ? "Active work appears here." : "Completed tickets appear here."}</p>}
               </section>;
             })}
           </section>
           {(creating || ticket) && <TicketDialog title={creating ? "New ticket" : ticket!.title} onClose={closeTicket}>
-            {ticket && <div className="flex shrink-0 gap-1 border-b px-6 py-2" role="tablist" aria-label="Ticket sections">{(["details", "chat", ...(ticket.status === "done" ? [] : ["preview"])] as ("details" | "chat" | "preview")[]).map(tab => <Button key={tab} role="tab" aria-selected={ticketTab === tab} variant={ticketTab === tab ? "secondary" : "ghost"} onClick={() => { setTicketTab(tab); setLog(null); }}>{tab === "details" ? "Details" : tab === "chat" ? "Chat" : "Preview"}</Button>)}</div>}
-            {ticket && ticketTab === "chat" ? <div className="min-h-0 flex-1"><TicketChat ticketId={ticket.id} projectId={project.id} done={ticket.status === "done"} /></div> : <div className="min-h-0 flex-1 overflow-y-auto p-6">
+            {ticket && <div className="flex shrink-0 gap-1 border-b px-6 py-2" role="tablist" aria-label="Ticket sections">{(["details", ...(ticket.status === "done" ? [] : ["preview"])] as ("details" | "preview")[]).map(tab => <Button key={tab} role="tab" aria-selected={ticketTab === tab} variant={ticketTab === tab ? "secondary" : "ghost"} onClick={() => { setTicketTab(tab); setLog(null); }}>{tab === "details" ? "Details" : "Preview"}</Button>)}</div>}
+            <div className="min-h-0 flex-1 overflow-y-auto p-6">
             {log && <section className="border-b p-6"><div className="mb-3 flex items-center justify-between gap-3"><h2 className="font-medium">{log.title}</h2><Button variant="ghost" size="sm" onClick={() => setLog(null)}>Close log</Button></div><pre className="max-h-80 overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">{log.text || "No output yet."}</pre></section>}
             {(creating || ticketTab === "details") && <section id="ticket-details" aria-label="Ticket details">
             <div className="max-w-3xl">{creating ? <TicketForm key={`new-${project.id}`} project={project} busy={busy} onCancel={() => setCreating(false)} onSave={async (input) => { await act(async () => { const t = await gantry.createTicket(project.id, input); setSelected(t.id); setCreating(false); }); }} /> : ticket &&
-              <TicketDetail key={ticket.id} editing={editingTicket} setEditing={setEditingTicket} ticket={ticket} project={project} busy={busy} act={act} onReview={(urls) => review(urls, ticket)} onLog={showLog} onDeleted={closeTicket} onChat={() => setTicketTab("chat")} />}</div></section>}
+              <TicketDetail key={ticket.id} editing={editingTicket} setEditing={setEditingTicket} ticket={ticket} project={project} busy={busy} act={act} onReview={(urls) => review(urls, ticket)} onLog={showLog} onDeleted={closeTicket} />}</div></section>}
         {ticket && ticketTab === "preview" && ticket.status !== "done" && <section id="ticket-preview" aria-label="Ticket preview" className="divide-y"><h3 className="pb-4 text-sm font-medium">Preview</h3>{ticketPreviews.map((p) => <section key={p.id} className="space-y-4 p-6">
           <div className="flex flex-wrap items-center gap-3"><GitBranchIcon className="size-4 text-muted-foreground" /><h2 className="min-w-0 break-all font-medium">{p.isPrimary ? "Main workspace" : p.branch}</h2><State value={p.paused ? "paused" : p.status} /><div className="flex-1" />
             {!p.archived && !p.retired && !p.removed ? <><Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => gantry.previewAction(p.id, p.paused ? "resume" : "pause"))}>{p.paused ? "Resume" : "Pause"}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => gantry.previewAction(p.id, "restart"))}>Restart</Button></> : <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => gantry.previewAction(p.id, "restore"))}>Restore</Button>}
@@ -189,7 +189,7 @@ export function GantryWorkspace() {
           <div className="space-y-2">{p.services.map((s) => <div key={s.id} className="flex flex-wrap items-center gap-3 text-sm"><span className="w-28 truncate font-medium">{s.id}</span><State value={s.state} /><span className="font-mono text-xs text-muted-foreground">{s.port ? `:${s.port}` : ""}</span>{s.openLink && s.state === "ready" && <a href={s.openLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs underline underline-offset-4">Open preview<ArrowUpRightIcon className="size-3" /></a>}{s.logUrl && <Button size="xs" variant="ghost" disabled={busy} onClick={() => void showLog(`${s.id} log`, s.logUrl!)}>Logs</Button>}{s.error && <p className="w-full break-words text-xs text-destructive">{s.error}</p>}</div>)}</div>
           <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Checkouts and environment</summary><div className="mt-3 space-y-2">{p.checkouts.map((c) => <p key={c.repositoryId} className="break-all">{c.repositoryId} · {c.path}</p>)}{project.environments.length > 0 && <label className="flex items-center gap-2">Environment<select className={selectClass} value={p.environment ?? project.environments.find((e) => e.default)?.id ?? ""} disabled={busy} onChange={(e) => void act(() => gantry.previewAction(p.id, "environment", { environmentId: e.target.value }))}>{project.environments.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}</select></label>}</div></details>
         </section>)}{!ticketPreviews.length && <p className="p-6 text-sm text-muted-foreground">No preview for this ticket yet. Create its worktrees from Details or start work in Chat.</p>}</section>}
-          </div>}</TicketDialog>}
+          </div></TicketDialog>}
         </div>}
         {project && area === "reviews" && <div className="divide-y">{pulls.map((g) => <section key={g.id} className="space-y-4 p-6"><div className="flex flex-wrap items-center gap-3"><GitBranchIcon className="size-4 text-muted-foreground" /><h2 className="min-w-0 flex-1 break-all font-medium">{g.branch}</h2><State value={g.ready ? "ready" : "blocked"} /><Button size="sm" disabled={busy} onClick={() => void review(Object.values(g.pulls).map((p) => p.url))}>Review {Object.keys(g.pulls).length > 1 ? "together" : "PR"}<ArrowUpRightIcon /></Button></div>
           {Object.entries(g.pulls).map(([repo, p]) => <div key={repo} className="flex flex-wrap items-center gap-3 text-sm"><GitPullRequestIcon className="size-4 shrink-0 text-muted-foreground" /><button className="min-w-0 flex-1 break-words text-left hover:underline" disabled={busy} onClick={() => void review([p.url])}>{repo} #{p.number} · {p.title}</button><a href={p.url} target="_blank" rel="noreferrer" className="text-xs text-muted-foreground underline underline-offset-4">GitHub</a></div>)}{g.blockers.length > 0 && <p className="text-xs text-muted-foreground">{g.blockers.join(" · ")}</p>}
@@ -215,7 +215,7 @@ function TicketForm({ project, ticket, busy, onSave, onCancel }: { project: Proj
   </form>;
 }
 
-function TicketDetail({ ticket: t, project, busy, act, onReview, onLog, onDeleted, editing, setEditing, onChat }: { onChat: () => void; editing: boolean; setEditing: (value: boolean) => void; ticket: TicketView; project: ProjectView; busy: boolean; act: (action: () => Promise<unknown>, message?: string) => Promise<boolean>; onReview: (urls: string[]) => Promise<void>; onLog: (title: string, url: string) => Promise<void>; onDeleted: () => void }) {
+function TicketDetail({ ticket: t, project, busy, act, onReview, onLog, onDeleted, editing, setEditing }: { editing: boolean; setEditing: (value: boolean) => void; ticket: TicketView; project: ProjectView; busy: boolean; act: (action: () => Promise<unknown>, message?: string) => Promise<boolean>; onReview: (urls: string[]) => Promise<void>; onLog: (title: string, url: string) => Promise<void>; onDeleted: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const running = t.run && ["starting", "running", "interrupting"].includes(t.run.state);
@@ -225,9 +225,8 @@ function TicketDetail({ ticket: t, project, busy, act, onReview, onLog, onDelete
       <label className="flex items-center gap-3 text-sm">Stage<select className={selectClass} value={t.status} disabled={busy} onChange={(e) => void act(() => gantry.updateTicket(t.id, { status: e.target.value }))}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{t.description || "No notes added."}</p>
     </div>
-    <section className="space-y-3 border-t pt-5"><h3 className="text-sm font-medium">Work on this ticket</h3>
-      <p className="text-sm text-muted-foreground">Create its worktrees, build the feature in Chat, then create a draft PR. Chat uses the provider configured in Settings.</p>
-      <div className="flex flex-wrap gap-2"><Button onClick={onChat}><MessageSquareIcon />Open chat</Button><Button variant="outline" disabled={busy || t.status === "done" || !!running} onClick={() => void act(() => ticketChatRequest(t.id, "prepare"), "Ticket worktrees are ready")}>Create worktrees</Button></div>
+    <section className="space-y-3 border-t pt-5"><TicketConversation ticketId={t.id} done={t.status === "done"} />
+      <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy || t.status === "done" || !!running} onClick={() => void act(() => ticketChatRequest(t.id, "prepare"), "Ticket worktrees are ready")}>Create worktrees</Button></div>
       {t.run && <div className="flex flex-wrap items-center gap-2"><State value={t.run.state} /><Button size="sm" variant="ghost" disabled={busy} onClick={() => void onLog("Previous agent output", t.run!.logUrl)}>View previous output</Button>{running && <Button variant="outline" disabled={busy} onClick={() => void act(() => gantry.handoffTicket(t.id), "Previous agent stopped. You can continue in Chat.")}>Take over</Button>}</div>}
     </section>
     {t.status !== "done" && <section className="space-y-3 border-t pt-5"><h3 className="text-sm font-medium">Review space</h3><p className="text-sm text-muted-foreground">All pull requests for this ticket stay together in its own space.</p><Button disabled={busy || !t.reviewSpaceId} onClick={() => void onReview([])}>Open ticket space<ArrowUpRightIcon /></Button>{t.pullRequests.map((p) => <Button key={p.url} variant="outline" size="sm" disabled={busy} onClick={() => void onReview([p.url])}>Review {p.role} #{p.number}</Button>)}{t.artifacts.map((a) => <a key={a.file} href={bridge(a.url)} target="_blank" rel="noreferrer" className="block text-sm underline underline-offset-4">{a.label}</a>)}</section>}

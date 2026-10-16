@@ -172,25 +172,3 @@ export async function runTool(cwd: string, name: string, rawArgs: string): Promi
     return { detail: str("path") ?? "", output: `error: ${(e as Error).message}` };
   }
 }
-
-/** Ticket agents share provider settings but can also run build/test/GitHub commands. */
-export const ticketTools = [
-  ...TOOL_SPECS.map(tool => ({ ...tool, function: { ...tool.function, parameters: { ...tool.function.parameters, properties: { ...tool.function.parameters.properties, repository: { type: "string", description: "Repository ID from the ticket's checkout list" } } } } })),
-  { type: "function", function: { name: "run_command", description: "Run a build, test, or git/gh command in a prepared ticket checkout. Supply executable and arguments separately, never a shell expression. Commit/push/create PR only when the user requests it; never force-push, deploy or merge.", parameters: { type: "object", properties: { repository: { type: "string" }, command: { type: "string" }, args: { type: "array", items: { type: "string" } } }, required: ["repository", "command", "args"] } } },
-];
-export async function runTicketTool(checkouts: { repositoryId: string; path: string }[], name: string, rawArgs: string, signal: AbortSignal): Promise<{ detail: string; output: string }> {
-  try {
-    const a = JSON.parse(rawArgs) as { repository?: string; command?: string; args?: string[] };
-    const checkout = a.repository ? checkouts.find(c => c.repositoryId === a.repository) : checkouts[0];
-    if (!checkout) throw new Error("Unknown ticket repository.");
-    if (name !== "run_command") return runTool(checkout.path, name, rawArgs);
-    if (!a.command || !Array.isArray(a.args) || a.args.some(v => typeof v !== "string")) throw new Error("Supply a command and string arguments.");
-    const command = a.command;
-    const args = a.args;
-    return await new Promise(resolve => {
-      execFile(command, args, { cwd: checkout.path, signal, timeout: 120000, maxBuffer: 2 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" } }, (error, stdout, stderr) => {
-        resolve({ detail: `${checkout.repositoryId}: ${command} ${args.join(" ")}`, output: clip(`${stdout}\n${stderr}${error ? `\nCommand failed: ${error.message}` : ""}`) });
-      });
-    });
-  } catch (e) { return { detail: name, output: `error: ${(e as Error).message}` }; }
-}

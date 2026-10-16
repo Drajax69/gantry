@@ -163,8 +163,6 @@ Two things to get right:
 
 ## Unified desktop chat
 
-The desktop app uses one provider registry for ticket chat and review chat, configured in Settings. It does not use the standalone runtime's per-project `defaultAgent` to choose the ticket chat provider. Open Chat always follows the shared selected provider; changing it also changes the provider for the next review turn.
+The desktop app uses one provider registry, configured in Settings, for new ticket conversations and PR review. It does not use the standalone runtime's per-project `defaultAgent` for this choice. A ticket retains its original provider and session when the default changes.
 
-Ticket chat prepares coordinated worktrees through the runtime before the first message. CLI agents receive the prepared checkout directories; API providers receive repository-scoped file tools and a command tool for builds, tests and requested Git/GitHub operations. The conversation and per-provider sessions are stored locally and survive closing the ticket dialog. `Create PR` is an explicit request to validate and publish draft pull requests; normal chat does not automatically publish. Existing PRs are discovered from their matching branches.
-
-The older adapters described above remain available for the standalone CLI/dashboard and existing background runs. The desktop can stop a legacy run before continuing in its own chat; its old transcript remains available as previous output rather than being represented as the new chat's history.
+Open chat prepares coordinated worktrees and opens a saved external conversation: Codex in its macOS app, or Claude Code in Terminal. Later clicks reopen that session. Linux uses the terminal launcher. API-only providers support PR review but have no external ticket launcher. Conversations receive ticket notes, checkout paths, and workspace instructions without starting an agent turn. Ask the external agent to implement the feature and create or update draft PRs; Gantry discovers PRs by branch. Session associations remain local under `~/.pr-lens/ticket-conversations`.
