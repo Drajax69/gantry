@@ -78,7 +78,7 @@ export function GantryWorkspace() {
   const previews = data?.previews.filter((p) => p.projectId === project?.id && (p.isPrimary || !doneBranch(p.branch))) ?? [];
   const pulls = data?.pulls.filter((p) => p.projectId === project?.id && !doneBranch(p.branch)) ?? [];
   const ticket = tickets.find((t) => t.id === selected);
-  const previewEntries = [{ id: "main", name: "Main", preview: previews.find(p => p.isPrimary) }, ...tickets.filter(t => t.status === "in_progress").map(t => ({ id: t.id, name: t.title, preview: previews.find(p => !p.isPrimary && p.branch === t.branch) }))];
+  const previewEntries = [{ id: "main", name: "Main", preview: previews.find(p => p.isPrimary) }, ...tickets.filter(t => t.status === "in_progress").map(t => ({ id: t.id, name: t.title.replace(/^.*\//, "").replace(/-+/g, " ").trim(), preview: previews.find(p => !p.isPrimary && p.branch === t.branch) }))];
   const activePreview = previewEntries.find(entry => entry.id === previewTicket) ?? previewEntries[0];
   const ticketPreviews = previews.filter(p => p.branch === ticket?.branch && !p.isPrimary);
   const jobs = data?.jobs.filter((j) => j.projectId === project?.id && ["queued", "running", "failed"].includes(j.state)).slice(0, 5) ?? [];

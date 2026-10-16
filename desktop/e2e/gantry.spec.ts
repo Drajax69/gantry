@@ -324,7 +324,7 @@ test('sidebar embeds Main and in-progress ticket previews, excluding backlog and
   const original=await (await request.get('http://127.0.0.1:3458/api/status')).json();
   const ticket={...original.tickets[0],projectId:'fixture',run:null,description:'',scope:'both',pullRequests:[],artifacts:[]};
   const preview={...original.previews[0],status:'Running',checkouts:[],isPrimary:false};
-  const status={...original,tickets:[{...ticket,id:'active-preview',title:'Runtime work',branch:'ticket/runtime',status:'in_progress'},{...ticket,id:'done-preview',title:'Finished work',branch:'ticket/done',status:'done'},{...ticket,id:'backlog-preview',title:'Future work',branch:'ticket/future',status:'backlog'}],previews:[{...preview,id:'main-preview',branch:'__primary__',isPrimary:true},{...preview,id:'active-preview',branch:'ticket/runtime'}]};
+  const status={...original,tickets:[{...ticket,id:'active-preview',title:'codex/online-exam-runtime-implementation',branch:'ticket/runtime',status:'in_progress'},{...ticket,id:'done-preview',title:'Finished work',branch:'ticket/done',status:'done'},{...ticket,id:'backlog-preview',title:'Future work',branch:'ticket/future',status:'backlog'}],previews:[{...preview,id:'main-preview',branch:'__primary__',isPrimary:true},{...preview,id:'active-preview',branch:'ticket/runtime'}]};
   await page.route('http://127.0.0.1:6500/**',route=>route.fulfill({contentType:'text/html',body:'<h1>Embedded application</h1><label>Draft<input></label><a href="/next">Next page</a>'}));
   try {
     await request.post('http://127.0.0.1:3458/__fixture',{data:{status}});
@@ -339,8 +339,8 @@ test('sidebar embeds Main and in-progress ticket previews, excluding backlog and
     await expect(frame.getByLabel('Draft')).toHaveValue('keep my work');
     await frame.getByRole('link',{name:'Next page'}).click();
     await expect(frame.getByRole('heading')).toBeVisible();
-    await nav.getByRole('button',{name:'Runtime work',exact:true}).click();
-    await expect(page.frameLocator('iframe[title="Runtime work preview"]').getByRole('heading')).toBeVisible();
+    await nav.getByRole('button',{name:'online exam runtime implementation',exact:true}).click();
+    await expect(page.frameLocator('iframe[title="online exam runtime implementation preview"]').getByRole('heading')).toBeVisible();
     await page.setViewportSize({width:900,height:650});
     await page.screenshot({path:'e2e/.tmp/sidebar-preview-compact.png'});
     await page.getByRole('button',{name:'Toggle theme'}).click();
