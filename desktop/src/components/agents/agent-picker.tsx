@@ -9,7 +9,7 @@ import { chooseAgent, useAgents } from "@/lib/client/agents";
 import { AgentIcon } from "./agent-icon";
 
 /** The chat header's "Claude ▾": which agent answers next, switchable in one click. */
-export function AgentPicker() {
+export function AgentPicker({ align = "end" }: { align?: "start" | "end" }) {
   const data = useAgents();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -46,7 +46,7 @@ export function AgentPicker() {
         <ChevronDownIcon className="size-3.5 text-muted-foreground" />
       </button>
       {open && (
-        <div role="menu" className="absolute top-full right-0 z-50 mt-1 w-72 rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg">
+        <div role="menu" className={cn("absolute top-full z-50 mt-1 max-h-72 w-72 overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg", align === "start" ? "left-0" : "right-0")}>
           <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">Answer with</div>
           {data.agents.map((a) => (
             <button
@@ -61,7 +61,7 @@ export function AgentPicker() {
             >
               <AgentIcon kind={a.kind} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate">{a.name}</span>
+                <span className="block break-words">{a.name}</span>
                 <span className={cn("block truncate text-xs", a.status.ok ? "text-muted-foreground" : "text-destructive")}>
                   {a.model || a.status.detail}
                 </span>

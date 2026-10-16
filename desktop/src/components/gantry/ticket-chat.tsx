@@ -49,7 +49,7 @@ export function TicketChat({ ticketId, projectId, done }: { ticketId: string; pr
     finally { setSending(false); }
   }
   return <section className="flex h-full min-h-0 flex-col" aria-label="Ticket chat">
-    <div className="flex flex-wrap items-center gap-3 border-b p-3"><AgentPicker /><span className="flex-1 text-xs text-muted-foreground">Same provider as reviews</span>
+    <div className="flex flex-wrap items-center gap-3 border-b p-3"><AgentPicker align="start" /><span className="flex-1 text-xs text-muted-foreground">Same provider as reviews</span>
       <Button size="sm" variant="outline" disabled={done || sending || !!data?.pending} onClick={() => void ask('Implement the feature described in this ticket in its prepared worktrees. Read instructions, preserve unrelated changes, run relevant tests, and report the result. Do not commit, push or create PRs yet.')}>Implement feature</Button>
       <Button size="sm" variant="outline" disabled={done || sending || !!data?.pending || !data?.checkouts.length} onClick={() => void ask('Review the ticket changes and run relevant validation. If it passes, commit only ticket-related files, push this ticket branch without force, and create draft pull requests for changed repositories. Reuse existing PRs for this branch. Return every PR URL. Do not merge or deploy.')}>Create PR</Button>
     </div>

@@ -181,6 +181,17 @@ test('tickets drag between columns and open persistent chat with the shared prov
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByRole('button',{name:'Agent: Codex'})).toBeVisible();
   await expect(page.getByText('Same provider as reviews')).toBeVisible();
+  await page.setViewportSize({width:900,height:650});
+  await page.getByRole('button',{name:'Agent: Codex'}).click();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitemradio',{name:/Codex/})).toBeVisible();
+  const menuBox = (await menu.boundingBox())!;
+  const dialogBox = (await page.getByRole('dialog').boundingBox())!;
+  expect(menuBox.x).toBeGreaterThanOrEqual(dialogBox.x);
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(dialogBox.x + dialogBox.width);
+  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(dialogBox.y + dialogBox.height);
+  await page.screenshot({path:'e2e/.tmp/provider-menu-compact.png'});
+  await page.getByRole('button',{name:'Agent: Codex'}).click();
   const response = await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'send',text:'Explain the fixture'}});
   expect(response.ok()).toBeTruthy();
   await expect.poll(async () => (await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'load'}})).json()).messages.some((m:{role:string})=>m.role==='assistant')).toBe(true);
