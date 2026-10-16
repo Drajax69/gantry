@@ -78,14 +78,14 @@ Before opening:
 
 - [ ] tests added or updated (`npx vitest run` green)
 - [ ] `npm run typecheck` clean
-- [ ] `npm run lint` run (see the CI note below)
+- [ ] `npm run lint` run
 - [ ] no secrets, real usernames, or absolute home paths introduced
 - [ ] documentation updated when behaviour, config, or the API changed
 - [ ] changelog entry under `## [Unreleased]` for user-visible changes
 
 In the description, say what changed, why, and how you verified it. If the PR touches supervision, jobs, or agents, include the scenario you exercised (restart mid-run, slow remote, dirty worktree, …).
 
-CI runs the matrix on macOS and Linux with Node 22 and 24: typecheck, lint, tests, and a UI build. Lint is required. A separate Linux job builds the dashboard and runs the disposable browser workflow with Chromium.
+Validation is run locally. This repository does not use GitHub Actions or a CI/CD pipeline; run the relevant typecheck, lint, tests, and builds before publishing changes.
 
 Small PRs win. A focused change with a clear test is easier to review and easier to revert.
 

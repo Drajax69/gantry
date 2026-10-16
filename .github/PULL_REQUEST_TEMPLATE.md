@@ -23,7 +23,7 @@
 
 - [ ] `npx vitest run`
 - [ ] `npm run typecheck`
-- [ ] `npm run lint` (non-blocking in CI, expected clean locally)
+- [ ] `npm run lint` (run locally)
 
 Scenarios exercised (for supervision, jobs, and agent changes):
 

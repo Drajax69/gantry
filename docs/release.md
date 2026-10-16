@@ -37,9 +37,9 @@ The two release scripts are `scripts/pack-release.mjs` (`npm run release:pack`) 
    git push origin vX.Y.Z
    ```
 
-   A `v*` tag triggers the release job in [.github/workflows/ci.yml](../.github/workflows/ci.yml), which builds, re-runs `release:pack` and `release:verify`, and uploads the archive as a workflow artifact.
+   Tags do not trigger a pipeline. Build and verify release archives locally using the commands above.
 
-6. **Publish the GitHub release.** Attach the archive and its `.sha256` sidecar (the CI job also produces a combined `SHA256SUMS`). Verify a download with:
+6. **Publish the GitHub release.** Attach the archive and its `.sha256` sidecar. Verify a download with:
 
    ```sh
    shasum -a 256 -c gantry-<version>.tar.gz.sha256
