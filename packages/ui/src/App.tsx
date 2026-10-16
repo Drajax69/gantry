@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type StatusView, type ProjectView, type TicketView } from './api.js';
 import { Chip, ConfirmDialog, stateTone } from './common.js';
+import { prLensLink } from './pr-lens.js';
 
 const TABS = [
   ['tickets', 'Tickets'],
@@ -556,9 +557,15 @@ function PullsBoard({ project, pulls, run }: { project: ProjectView; pulls: Stat
             {group.previewUrl ? <a href={group.previewUrl} target="_blank" rel="noreferrer">Open preview</a> : null}
           </div>
           <div className="links">
-            {Object.entries(group.pulls).map(([repositoryId, pull]) => (
-              <a key={repositoryId} href={pull.url} target="_blank" rel="noreferrer">{repositoryId} #{pull.number} — {pull.title}</a>
-            ))}
+            {Object.entries(group.pulls).map(([repositoryId, pull]) => {
+              const reviewLink = prLensLink(pull.url);
+              return (
+                <div key={repositoryId}>
+                  <a href={pull.url} target="_blank" rel="noreferrer">{repositoryId} #{pull.number} — {pull.title}</a>
+                  {reviewLink ? <a href={reviewLink} style={{ marginLeft: 16 }} title="Requires the PR Lens desktop app">Open in PR Lens</a> : null}
+                </div>
+              );
+            })}
           </div>
         </article>
       ))}

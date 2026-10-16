@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+// Stand-in for `codex exec --json`: records its arguments and prints a canned run.
+const fs = require("node:fs");
+const path = require("node:path");
+if (process.argv[2] === "--version") {
+  console.log("codex-cli 0.0.0-fixture");
+  process.exit(0);
+}
+let prompt = "";
+process.stdin.on("data", (d) => (prompt += d));
+process.stdin.on("end", () => {
+  fs.appendFileSync(path.join(process.env.PR_LENS_HOME, "codex-calls.jsonl"), JSON.stringify({ args: process.argv.slice(2), prompt, cwd: process.cwd() }) + "\n");
+  const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
+  const resumed = process.argv.includes("resume");
+  out({ type: "thread.started", thread_id: "thread-fixture" });
+  out({ type: "turn.started" });
+  out({ type: "item.started", item: { id: "i0", type: "command_execution", command: "git diff HEAD~1 -- src/math.ts", status: "in_progress" } });
+  out({ type: "item.completed", item: { id: "i0", type: "command_execution", command: "git diff HEAD~1 -- src/math.ts", status: "completed" } });
+  out({ type: "item.completed", item: { id: "i1", type: "agent_message", text: resumed ? "Codex again: still fine." : "Codex here: `src/math.ts:3` guards NaN." } });
+  out({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 5 } });
+});

@@ -6,3 +6,23 @@ test-results/
 playwright-report/
 *.tsbuildinfo
 packages/*/dist/
+
+# Personal state and credentials (never publish)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.sqlite*
+*.db
+*.db-*
+.gantry/
+.pr-lens/
+.worktrees/
+.local/
+.impeccable/
+.DS_Store
+.next/
+.gantry-runtime/
+next-env.d.ts
+e2e/.tmp/

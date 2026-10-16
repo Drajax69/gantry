@@ -18,16 +18,6 @@ async function status(): Promise<StatusPayload> {
   return (await response.json()) as StatusPayload;
 }
 
-function waitFor(condition: () => boolean, next: () => void, timeoutMs = 30000): void {
-  const started = Date.now();
-  const timer = setInterval(() => {
-    if (condition() || Date.now() - started > timeoutMs) {
-      clearInterval(timer);
-      next();
-    }
-  }, 300);
-}
-
 test('dashboard loads and renders the fixture project', async ({ page }) => {
   await page.goto(BASE);
   await expect(page.locator('.brand')).toContainText('Gantry');
@@ -56,26 +46,21 @@ test('ticket creation, prompt preview, agent run state, and Take over', async ({
 
   // 3. Start → the run appears and the card shows a live state.
   await page.getByRole('button', { name: 'Start agent' }).last().click();
-  await waitFor(
-    () => status().then(
-      (payload) => Boolean(payload.tickets.find((candidate) => candidate.title === 'Browser driven ticket')?.run),
-    ),
-    () => void 0,
-  );
+  await expect.poll(async () => {
+    const payload = await status();
+    return payload.tickets.find((ticket) => ticket.title === 'Browser driven ticket')?.run?.state;
+  }, { timeout: 30000 }).toBe('running');
   const card = page.locator('.card', { hasText: 'Browser driven ticket' });
   await expect(card.locator('.chip.live, .chip.bad, .chip.warn').first()).toBeVisible({ timeout: 30000 });
 
   // 4. Take over interrupts the run without a session id (generic agent).
   await expect(card.getByRole('button', { name: 'Take over' })).toBeVisible({ timeout: 30000 });
   await card.getByRole('button', { name: 'Take over' }).click();
-  await waitFor(
-    () => status().then((payload) => {
-      const run = payload.tickets.find((candidate) => candidate.title === 'Browser driven ticket')?.run;
-      return run?.state === 'ready' || run?.state === 'finished' || run?.state === 'failed';
-    }),
-    () => void 0,
-  );
-  await expect(card.locator('.chip.good, .chip.bad').first()).toBeVisible({ timeout: 15000 });
+  await expect.poll(async () => {
+    const payload = await status();
+    return payload.tickets.find((ticket) => ticket.title === 'Browser driven ticket')?.run?.state;
+  }, { timeout: 15000 }).toBe('ready');
+  await expect(card.locator('.chip.good').first()).toBeVisible();
 });
 
 test('previews board shows the running main workspace with services', async ({ page }) => {
@@ -85,4 +70,24 @@ test('previews board shows the running main workspace with services', async ({ p
   await expect(card).toBeVisible({ timeout: 20000 });
   await expect(card.locator('.service-line .name', { hasText: 'frontend' })).toBeVisible({ timeout: 30000 });
   await expect(card.getByText('Logs').first()).toBeVisible();
+});
+
+test('pull requests link to the matching PR Lens review', async ({ page }) => {
+  await page.route('**/api/status', async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.pulls = [{
+      id: 'lens-test', projectId: 'browser', branch: 'feature/review', ready: true,
+      blockers: [], previewUrl: null,
+      pulls: { frontend: { number: 42, title: 'Review this change', url: 'https://github.com/example/frontend/pull/42' } },
+    }];
+    await route.fulfill({ response, json: payload });
+  });
+  await page.goto(BASE);
+  await page.getByRole('tab', { name: 'Pull requests' }).click();
+  await expect(page.getByRole('link', { name: 'Open in PR Lens' }))
+    .toHaveAttribute('href', 'pr-lens://review/example/frontend/pull/42');
+  await expect(page.getByRole('link', { name: /frontend #42/ }))
+    .toHaveAttribute('href', 'https://github.com/example/frontend/pull/42');
+  await page.unrouteAll({ behavior: 'wait' });
 });

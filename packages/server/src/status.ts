@@ -63,6 +63,7 @@ export async function buildStatus(app: GantryApp): Promise<Record<string, unknow
     const previewRows = app.db.prepare('SELECT * FROM previews WHERE project_id=?').all(projectId) as Record<string, unknown>[];
     for (const row of previewRows) {
       const previewId = String(row['id']);
+      if (app.supervisor.isDonePreview(previewId)) continue;
       const serviceRows = app.db.prepare('SELECT * FROM preview_services WHERE preview_id=?').all(previewId) as Record<string, unknown>[];
       const checkouts = app.db.prepare('SELECT * FROM preview_checkouts WHERE preview_id=?').all(previewId) as Record<string, unknown>[];
       const services: PreviewServiceView[] = [];
@@ -108,6 +109,8 @@ export async function buildStatus(app: GantryApp): Promise<Record<string, unknow
       });
     }
 
+    // The first explicitly exposed service is the workspace's primary preview.
+    const previewServiceId = project.config.services.find((service) => service.openUrl)?.id ?? project.config.services[0]?.id;
     pullsView.push(...app.remote.pullsFor(projectId).map((group) => {
       const preview = previewsView.find((candidate) => candidate['projectId'] === projectId && candidate['branch'] === group.branch && !candidate['retired'] && !candidate['archived']);
       const blockers = [...new Set(Object.values(group.pulls).flatMap((pull) => pull.blockers))];
@@ -117,7 +120,7 @@ export async function buildStatus(app: GantryApp): Promise<Record<string, unknow
         branch: group.branch,
         pulls: group.pulls,
         previewId: (preview?.['id'] as string) ?? null,
-        previewUrl: (Object.values(preview?.['services'] ?? {}).find((service) => (service as PreviewServiceView).id === 'frontend') as PreviewServiceView | undefined)?.openUrl ?? null,
+        previewUrl: (Object.values(preview?.['services'] ?? {}).find((service) => (service as PreviewServiceView).id === previewServiceId) as PreviewServiceView | undefined)?.openUrl ?? null,
         ready: Object.values(group.pulls).every((pull) => pull.ready) && Object.keys(group.pulls).length > 0,
         blockers,
       };
@@ -162,7 +165,7 @@ export async function buildStatus(app: GantryApp): Promise<Record<string, unknow
               logUrl: `/logs/run/${run.id}`,
             }
           : null,
-        previewUrl: ((preview?.['services'] as PreviewServiceView[]) ?? []).find((service) => service.id === 'frontend')?.openUrl ?? null,
+        previewUrl: ((preview?.['services'] as PreviewServiceView[]) ?? []).find((service) => service.id === previewServiceId)?.openUrl ?? null,
         previewStatus: (preview?.['status'] as string) ?? null,
         pullRequests: pullsView
           .filter((group) => group['projectId'] === projectId && group['branch'] === ticket.branch)

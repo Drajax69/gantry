@@ -103,6 +103,20 @@ describe('GenericAdapter', () => {
     assert.ok(!['sh', 'bash', 'zsh', 'cmd', 'powershell'].includes(binaryBaseName(spec.argv[0]!)));
   });
 
+  test('parses quoted arguments and preserves literal replacement characters', () => {
+    const spec = adapter.buildStart(context({
+      args: { command: `node   -e "setTimeout(() => {}, 60000)" '' --prompt "${'${prompt}'}"` },
+      prompt: '$& ${workspace} "quoted"',
+    }));
+    assert.deepEqual(spec.argv, ['node', '-e', 'setTimeout(() => {}, 60000)', '', '--prompt', '$& ${workspace} "quoted"']);
+  });
+
+  test('rejects malformed or blank custom commands', () => {
+    for (const command of ['   ', 'node "unclosed', 'node ' + String.fromCharCode(92)]) {
+      assert.throws(() => adapter.buildStart(context({ args: { command } })), /Custom command/);
+    }
+  });
+
   test('reports its limits honestly', () => {
     assert.equal(adapter.buildResume('any', context()), null);
     assert.equal(adapter.deepLink('any'), null);

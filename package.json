@@ -2,7 +2,7 @@
   "name": "gantry-monorepo",
   "private": true,
   "version": "0.1.0",
-  "description": "Gantry — a local development control plane for tickets, Git worktrees, previews, and AI coding agents",
+  "description": "Gantry \u2014 a local development control plane for tickets, Git worktrees, previews, and AI coding agents",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -23,7 +23,12 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc -b packages/shared packages/server packages/cli && tsc --noEmit -p packages/ui",
     "release:pack": "node scripts/pack-release.mjs",
-    "release:verify": "node scripts/check-release.mjs"
+    "release:verify": "node scripts/check-release.mjs",
+    "desktop:setup": "npm ci --prefix desktop",
+    "desktop:dev": "npm run dev --prefix desktop",
+    "desktop:build": "npm run build && npm run app:build --prefix desktop",
+    "desktop:start": "npm run build && npm run app:start --prefix desktop",
+    "desktop:test": "npm run test:e2e --prefix desktop"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",

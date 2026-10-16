@@ -247,6 +247,42 @@ export class OpenCodeAdapter implements AgentAdapter {
  * unsupported — reported honestly — while takeover still works because the
  * process group is Gantry-owned.
  */
+function commandArgs(command: string): string[] {
+  const args: string[] = [];
+  let token = '';
+  let quote = '';
+  let started = false;
+  for (let i = 0; i < command.length; i += 1) {
+    const char = command[i]!;
+    if (char === '\\' && quote !== "'") {
+      const next = command[i + 1];
+      if (next === undefined) throw new Error('Custom command ends with an escape.');
+      if (!quote || next === quote || next === '\\') {
+        token += next;
+        i += 1;
+      } else token += char;
+      started = true;
+    } else if (quote) {
+      if (char === quote) quote = '';
+      else token += char;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+      started = true;
+    } else if (/\s/.test(char)) {
+      if (started) args.push(token);
+      token = '';
+      started = false;
+    } else {
+      token += char;
+      started = true;
+    }
+  }
+  if (quote) throw new Error('Custom command has an unterminated quote.');
+  if (started) args.push(token);
+  if (!args[0]) throw new Error('Custom command must include an executable.');
+  return args;
+}
+
 export class GenericAdapter implements AgentAdapter {
   readonly id = 'generic';
   readonly label = 'Custom command';
@@ -273,9 +309,9 @@ export class GenericAdapter implements AgentAdapter {
   buildStart(context: AgentStartContext): SpawnSpec {
     const command = context.args['command'];
     if (!command) throw new Error('The generic agent needs agents.generic.args.command in gantry.yaml (use ${prompt} for the rendered prompt).');
-    // Split on whitespace, then substitute as single argv tokens: the prompt
+    // Parse quoting before substitution; no shell evaluates the command. The prompt
     // travels as one argument even though the template is written inline.
-    const argv = command.split(' ').map((part) => part.replace('${prompt}', context.prompt).replace('${workspace}', context.workspace));
+    const argv = commandArgs(command).map((part) => part.replace(/\$\{(prompt|workspace)\}/g, (_, key: 'prompt' | 'workspace') => context[key]));
     return { argv, cwd: context.workspace, claim: `${String(argv[0])} ${String(argv[1] ?? '')}`.trim() };
   }
 

@@ -10,6 +10,8 @@ import { resolveArtifact } from '../artifacts/artifacts.js';
 import { templateBody, buildPromptVars, renderPrompt, repositoryPath } from '../prompts/engine.js';
 import { findInstructionFiles } from '../prompts/instructions.js';
 import { readPreviewLoginEmail } from '../supervisor/preview-login.js';
+import { initializeWorkspace } from '../projects/initialize.js';
+import { ticketWorkspace } from '../tickets/workspace.js';
 import { validateTicketInput, type TicketInput } from '../tickets/store.js';
 
 /**
@@ -55,8 +57,9 @@ export async function createHttpServer(app: GantryApp) {
 
   // ---- projects ------------------------------------------------------------
   fastify.post('/api/projects', async (request, reply) => {
-    const body = request.body as { workspace?: string };
+    const body = request.body as { workspace?: string; initialize?: boolean };
     if (!body.workspace || typeof body.workspace !== 'string') throw new Error('Provide a workspace directory containing gantry.yaml');
+    if (body.initialize) await initializeWorkspace(body.workspace);
     const project = await app.addWorkspace(body.workspace);
     return reply.code(201).send({ ok: true, projectId: project.config.project.id });
   });
@@ -134,7 +137,9 @@ export async function createHttpServer(app: GantryApp) {
     if (!ticket) throw Object.assign(new Error('Ticket not found.'), { statusCode: 404 });
     const project = await app.loadProjectById(ticket.project_id);
     const validated = validateTicketInput(request.body as unknown as TicketInput, ticket, project.config.project.branchPrefix);
-    return app.tickets.update(ticketId, validated, project.config.scopes.map((scope) => scope.id), project.config.project.branchPrefix);
+    const updated = app.tickets.update(ticketId, validated, project.config.scopes.map((scope) => scope.id), project.config.project.branchPrefix);
+    if (updated.status === 'done') await app.supervisor.stopDonePreviews();
+    return updated;
   });
 
   fastify.post('/api/tickets/:ticketId/delete', async (request) => {
@@ -165,6 +170,20 @@ export async function createHttpServer(app: GantryApp) {
       ticketAdditions: ticket.additions,
     });
     return { agentId, prompt: rendered.prompt, layers: rendered.layers };
+  });
+
+  const preparing = new Map<string, Promise<unknown>>();
+  fastify.get('/api/tickets/:ticketId/workspace', async request => {
+    return ticketWorkspace(app, (request.params as { ticketId: string }).ticketId);
+  });
+  fastify.post('/api/tickets/:ticketId/prepare', async request => {
+    const { ticketId } = request.params as { ticketId: string };
+    let task = preparing.get(ticketId);
+    if (!task) {
+      task = ticketWorkspace(app, ticketId, true).finally(() => preparing.delete(ticketId));
+      preparing.set(ticketId, task);
+    }
+    return task;
   });
 
   // Start: queues the durable job and returns immediately (202).
@@ -214,6 +233,7 @@ export async function createHttpServer(app: GantryApp) {
     const body = (request.body ?? {}) as { confirm?: boolean; environmentId?: string };
     const preview = app.supervisor.previewRow(previewId);
     if (!preview) throw Object.assign(new Error('Unknown preview'), { statusCode: 404 });
+    if (app.supervisor.isDonePreview(previewId)) throw Object.assign(new Error('Reopen the ticket before using its preview.'), { statusCode: 409 });
     switch (action) {
       case 'pause':
         await app.supervisor.setPaused(previewId, true);

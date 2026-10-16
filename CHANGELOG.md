@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+- Ship the unified Gantry desktop app with ticket dialogs, column dragging, shared provider chat, and integrated PR review.
+- Detect repositories for first-run workspace setup and prepare ticket worktrees independently of any provider.
+- Keep personal state out of the source repository.
+
+### Added
+
+- Open GitHub pull requests in the PR Lens desktop app directly from the Pull requests board.
+
+### Fixed
+
+- Managed runtimes retain a verifiable process claim, preventing duplicate preview processes on discovery passes.
+
+- Custom agents now accept quoted command arguments and preserve literal prompt content during substitution.
+- Custom-agent takeover can stop a verified process without a session ID.
+- Browser checks wait for successful run and takeover states, and fixture cleanup stops only its own agents and previews through Gantry's API.
+
 ## [0.1.0] - 2026-10-13
 
 Initial public release. Gantry is a local development control plane: register a Git workspace, describe it once in `gantry.yaml`, and move a ticket from the board to coordinated worktrees, an isolated branch preview, an AI coding agent, takeover, and PR/evidence review.

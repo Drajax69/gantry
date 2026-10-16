@@ -85,7 +85,7 @@ Before opening:
 
 In the description, say what changed, why, and how you verified it. If the PR touches supervision, jobs, or agents, include the scenario you exercised (restart mid-run, slow remote, dirty worktree, …).
 
-CI runs the matrix on macOS and Linux with Node 22 and 24: typecheck, lint, tests, and a UI build. The lint step is currently non-blocking (`continue-on-error`) while the ESLint configuration settles — run it locally anyway and do not introduce new warnings.
+CI runs the matrix on macOS and Linux with Node 22 and 24: typecheck, lint, tests, and a UI build. Lint is required. A separate Linux job builds the dashboard and runs the disposable browser workflow with Chromium.
 
 Small PRs win. A focused change with a clear test is easier to review and easier to revert.
 
@@ -96,3 +96,7 @@ By participating you agree to the [Contributor Covenant](./CODE_OF_CONDUCT.md). 
 ## Security issues
 
 Do not open a public issue for a security problem. See [SECURITY.md](./SECURITY.md) for private reporting and scope.
+
+## Desktop application
+
+The primary product UI is now `desktop/` (Electron + Next.js); `packages/ui` remains the standalone runtime dashboard. Install its independent dependency lock with `npm run desktop:setup`. Use `npm run desktop:build` to build the runtime and desktop together. Run the desktop's typecheck, lint and offline browser tests before submitting UI changes. Never copy `~/.pr-lens`, Gantry's data directory, workspace YAML, screenshots of personal work, or local checkouts into the repository.

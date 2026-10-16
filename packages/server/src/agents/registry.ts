@@ -167,9 +167,9 @@ export class AgentRegistry {
     if (!run) return { ok: false, sessionId: null, deepLink: null, error: 'Run not found.' };
     const adapter = this.adapters.get(run.agent);
     if (!adapter) return { ok: false, sessionId: run.session_id, deepLink: null, error: `Agent "${run.agent}" is no longer registered.` };
-    if (!run.session_id) return { ok: false, sessionId: null, deepLink: null, error: 'The agent has not reported a session id yet — it is still starting.' };
+    if (!run.session_id && adapter.id !== 'generic') return { ok: false, sessionId: null, deepLink: null, error: 'The agent has not reported a session id yet — it is still starting.' };
     if (run.state === 'finished' || run.state === 'ready') {
-      return { ok: true, sessionId: run.session_id, deepLink: adapter?.deepLink(run.session_id) ?? null };
+      return { ok: true, sessionId: run.session_id, deepLink: run.session_id ? adapter.deepLink(run.session_id) : null };
     }
     this.db.prepare("UPDATE runs SET state='interrupting' WHERE id=?").run(runId);
     try {

@@ -1,0 +1,38 @@
+#!/usr/bin/env node
+// Stand-in for `claude -p --output-format stream-json`: records its arguments and streams a canned answer.
+const fs = require("node:fs");
+const path = require("node:path");
+if (process.argv[2] === "--version") {
+  console.log("0.0.0-fixture (Claude Code)");
+  process.exit(0);
+}
+let prompt = "";
+process.stdin.on("data", (d) => (prompt += d));
+process.stdin.on("end", async () => {
+  const home = process.env.PR_LENS_HOME;
+  fs.appendFileSync(path.join(home, "claude-calls.jsonl"), JSON.stringify({ args: process.argv.slice(2), prompt, cwd: process.cwd() }) + "\n");
+  const out = (o) => process.stdout.write(JSON.stringify(o) + "\n");
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  if (prompt.includes("FAIL")) {
+    process.stderr.write("API Error: overloaded\n");
+    process.exit(1);
+  }
+  const resumed = process.argv.includes("--resume");
+  // Like the real CLI, total_cost_usd is a running total for the session (one session per checkout here).
+  const runs = fs.readFileSync(path.join(home, "claude-calls.jsonl"), "utf8").trim().split("\n")
+    .filter((l) => JSON.parse(l).cwd === process.cwd()).length;
+  out({ type: "system", subtype: "init", session_id: "sess-fixture" });
+  out({ type: "stream_event", event: { type: "content_block_start", content_block: { type: "text" } } });
+  out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: resumed ? "Following up. " : "Reading the change. " } } });
+  out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { command: "git diff HEAD~1 -- src/math.ts" } }] } });
+  if (prompt.includes("SLOW")) await sleep(30000);
+  if (prompt.includes("PAUSE")) await sleep(2500);
+  if (prompt.includes("DIAGRAM")) {
+    out({ type: "stream_event", event: { type: "content_block_start", content_block: { type: "text" } } });
+    out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "Here's the flow:\n\n```mermaid\nflowchart LR\n  A[add called] --> B{NaN?}\n  B -- yes --> C[throw]\n  B -- no --> D[return sum]\n```\n" } } });
+  }
+  await sleep(300);
+  out({ type: "stream_event", event: { type: "content_block_start", content_block: { type: "text" } } });
+  out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "The guard is at `src/math.ts:3`. **Looks fine.**" } } });
+  out({ type: "result", subtype: "success", result: "done", total_cost_usd: resumed ? 0.0042 * runs : 0.0042, is_error: false, session_id: "sess-fixture" });
+});

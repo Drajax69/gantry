@@ -159,6 +159,17 @@ export class Supervisor {
     for (const row of rows) await this.stopService(previewId, row.service_id);
   }
 
+  isDonePreview(previewId: string): boolean {
+    return Boolean(this.db.prepare(`SELECT 1 FROM previews p JOIN tickets t
+      ON t.project_id=p.project_id AND (t.id=p.ticket_id OR t.branch=p.branch)
+      WHERE p.id=? AND p.is_primary=0 AND t.status='done' LIMIT 1`).get(previewId));
+  }
+
+  async stopDonePreviews(): Promise<void> {
+    const rows = this.db.prepare('SELECT id FROM previews WHERE is_primary=0').all() as { id: string }[];
+    for (const row of rows) if (this.isDonePreview(row.id)) await this.stopPreview(row.id);
+  }
+
   // ---------------------------------------------------------------- main tick
 
   async tick(): Promise<void> {
@@ -212,9 +223,9 @@ export class Supervisor {
     const row = this.previewRow(group.id)!;
     this.syncCheckouts(group);
 
-    if (row.paused || row.archived || row.removed || row.retired) {
+    if (this.isDonePreview(row.id) || row.paused || row.archived || row.removed || row.retired) {
       await this.stopPreview(group.id);
-      const status = row.retired ? 'Merged' : row.removed ? 'Removed' : row.archived ? 'Archived' : 'Paused';
+      const status = this.isDonePreview(row.id) ? 'Done' : row.retired ? 'Merged' : row.removed ? 'Removed' : row.archived ? 'Archived' : 'Paused';
       this.db.prepare('UPDATE previews SET status=?, updated_at=? WHERE id=?').run(status, now, group.id);
       return;
     }
@@ -393,6 +404,7 @@ export class Supervisor {
     environment: EnvironmentConfig | null,
     signature: string,
   ): Promise<void> {
+    if (this.isDonePreview(preview.id)) return;
     const workDir = path.resolve(checkout.path, service.workDir);
     const logFile = path.join(this.ctx.logsDir, `${preview.id}-${service.id}.log`);
     await fsp.mkdir(path.dirname(logFile), { recursive: true, mode: 0o700 });
@@ -482,7 +494,9 @@ export class Supervisor {
     // process (or for argv form, the argv itself). Verification matches
     // pgid + this text, so recorded pids can never be mistaken for ours.
     const startCommand = resolveServiceCommand(service, 'start', vars);
-    const claim = (startCommand?.kind === 'argv' ? startCommand.value.join(' ') : String(startCommand?.value ?? '')).slice(0, 200);
+    const claim = (service.runtime === 'command'
+      ? (startCommand?.kind === 'argv' ? startCommand.value.join(' ') : String(startCommand?.value ?? ''))
+      : argv.join(' ')).slice(0, 200);
     void this.runPostStartHooks(service, workDir, vars).catch((error) => this.log.warn(`${preview.id}:${service.id}: postStart hook failed: ${(error as Error).message}`));
     this.saveServiceRow(preview.id, service.id, {
       state: 'starting',
@@ -497,6 +511,7 @@ export class Supervisor {
     });
     this.log.info(`Started ${project.config.project.name} ${service.id} (${preview.branch}) on port ${port}`);
     void this.watchChild(preview, service, handle);
+    if (this.isDonePreview(preview.id)) await this.stopPreview(preview.id);
   }
 
   private async watchChild(preview: PreviewRow, service: ServiceConfig, handle: SpawnHandle): Promise<void> {
@@ -504,7 +519,7 @@ export class Supervisor {
     const row = this.serviceRow(preview.id, service.id);
     if (!row || row.pid !== handle.pid) return; // replaced or stopped intentionally
     const live = this.previewRow(preview.id);
-    if (live && !live.paused && !live.archived && !live.removed && !live.retired) {
+    if (live && !this.isDonePreview(live.id) && !live.paused && !live.archived && !live.removed && !live.retired) {
       const lifetime = row.started_at ? Date.now() - Date.parse(row.started_at) : Number.MAX_SAFE_INTEGER;
       const startup = lifetime < 60_000;
       this.saveServiceRow(preview.id, service.id, {

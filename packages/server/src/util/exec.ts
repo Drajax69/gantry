@@ -31,6 +31,8 @@ export class ExecError extends Error {
 
 const childEnv = (extra?: Record<string, string | undefined>): NodeJS.ProcessEnv => ({
   ...process.env,
+  // Embedded Electron service: child JS runtimes must run as Node, not open another app.
+  ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
   // Never let git hang on credential prompts; Gantry only uses the user's
   // existing local authentication (SSH agent / credential helper).
   GIT_TERMINAL_PROMPT: '0',

@@ -79,7 +79,7 @@ This adapter is explicitly best-effort: if OpenCode does not print a session id,
 
 ### `generic` — any command
 
-Configured through `agents[].args.command`, a template in which `${prompt}` and `${workspace}` are substituted; it defaults to `${prompt}`.
+Configured through `agents[].args.command`, a template in which `${prompt}` and `${workspace}` are substituted. An explicit command is required. Arguments support single and double quotes and backslash escapes; substitution happens after parsing so prompts remain literal argument values. Commands run directly without shell expansion, pipes, or redirection.
 
 ```yaml
 agents:
@@ -89,7 +89,7 @@ agents:
       command: my-agent --cwd ${workspace} --task ${prompt}
 ```
 
-The generic adapter has no session concept, and it says so: `resumeMode: unsupported`, no `deepLinkScheme`, no session parsing. `takeover` and `interruptMode: process-group` are still reported when a binary is configured, because stopping the process group works regardless.
+The generic adapter has no session concept, and it says so: `resumeMode: unsupported`, no `deepLinkScheme`, no session parsing. `takeover` and `interruptMode: process-group` are supported without a session ID, because stopping the verified process group works regardless.
 
 ## How takeover works
 
@@ -160,3 +160,11 @@ Two things to get right:
 
 - **`claim` must be the post-exec command line.** It is the string matched against `ps` output; if it does not match, takeover will correctly refuse to signal.
 - **Report capabilities honestly.** If your agent cannot be resumed, return `resumeMode: 'unsupported'` and a note explaining why. The UI shows the note; nobody has to discover the limitation by trying.
+
+## Unified desktop chat
+
+The desktop app uses one provider registry for ticket chat and review chat, configured in Settings. It does not use the standalone runtime's per-project `defaultAgent` to choose the ticket chat provider. Open Chat always follows the shared selected provider; changing it also changes the provider for the next review turn.
+
+Ticket chat prepares coordinated worktrees through the runtime before the first message. CLI agents receive the prepared checkout directories; API providers receive repository-scoped file tools and a command tool for builds, tests and requested Git/GitHub operations. The conversation and per-provider sessions are stored locally and survive closing the ticket dialog. `Create PR` is an explicit request to validate and publish draft pull requests; normal chat does not automatically publish. Existing PRs are discovered from their matching branches.
+
+The older adapters described above remain available for the standalone CLI/dashboard and existing background runs. The desktop can stop a legacy run before continuing in its own chat; its old transcript remains available as previous output rather than being represented as the new chat's history.

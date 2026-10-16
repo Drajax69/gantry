@@ -6,7 +6,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-const run = promisify(execFile);
 
 const root = path.resolve(new URL('..', import.meta.url).pathname);
 const PORT = Number(process.env.E2E_PORT ?? 4620);
@@ -89,6 +88,7 @@ const child = spawn('node', [path.join(root, 'packages/cli/bin/gantry.js'), 'ser
     GANTRY_SERVICE_READY_TIMEOUT_MS: '20000',
   },
   stdio: ['ignore', 'inherit', 'inherit'],
+  detached: true,
 });
 for (let attempt = 0; attempt < 80; attempt += 1) {
   try {
@@ -101,37 +101,44 @@ for (let attempt = 0; attempt < 80; attempt += 1) {
 }
 await fetch(`http://127.0.0.1:${PORT}/api/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: `http://127.0.0.1:${PORT}` }, body: JSON.stringify({ workspace }) });
 
+let shuttingDown = false;
 const shutdown = async () => {
-  // Kill the server's process group and any generic-agent sleeps it spawned.
+  if (shuttingDown) return;
+  shuttingDown = true;
   try {
-    const { stdout } = await run('ps', ['-axo', 'pid=,command=']);
-    for (const line of stdout.split('\n')) {
-      if (line.includes('setTimeout(() => {}, 60000)') && !line.includes('ps -axo')) {
-        const pid = Number(line.trim().split(/\s+/)[0]);
-        if (pid) {
-          try {
-            process.kill(-pid, 'SIGKILL');
-          } catch {
-            /* gone */
-          }
-        }
+    // Use this fixture's API: process ownership is verified by Gantry.
+    const base = `http://127.0.0.1:${PORT}`;
+    const request = async (route, method = 'GET') => {
+      const response = await fetch(`${base}${route}`, {
+        method,
+        headers: { 'Content-Type': 'application/json', Origin: base },
+        ...(method === 'POST' ? { body: '{}' } : {}),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) throw new Error(`${route}: ${response.status}`);
+      return response.json();
+    };
+    const state = await request('/api/status');
+    for (const ticket of state.tickets) {
+      if (ticket.run && ['starting', 'running', 'interrupting'].includes(ticket.run.state)) {
+        await request(`/api/tickets/${ticket.id}/handoff`, 'POST');
       }
     }
-  } catch {
-    /* best effort */
-  }
-  try {
-    process.kill(-child.pid, 'SIGTERM');
-  } catch {
-    try {
-      child.kill('SIGTERM');
-    } catch {
-      /* gone */
+    for (const preview of state.previews) {
+      await request(`/api/previews/${preview.id}/pause`, 'POST');
     }
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    child.kill('SIGTERM');
+    await exited;
+    await fs.rm(workspace, { recursive: true, force: true });
+    await fs.rm(dataDir, { recursive: true, force: true });
+    process.exit(0);
+  } catch (error) {
+    // Preserve ownership records when cleanup fails; never scan unrelated processes.
+    console.error('Fixture cleanup failed; retained workspace and data:', workspace, dataDir, error);
+    child.kill('SIGTERM');
+    process.exit(1);
   }
-  await fs.rm(workspace, { recursive: true, force: true }).catch(() => {});
-  await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
-  process.exit(0);
 };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);

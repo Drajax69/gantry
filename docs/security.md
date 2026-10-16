@@ -111,3 +111,9 @@ Agents are launched as detached children of your user, inheriting your environme
 ## Reporting
 
 See [SECURITY.md](../SECURITY.md) for how to report a vulnerability privately.
+
+## Desktop ticket chat
+
+Desktop provider credentials and conversations are local files outside the repository. API keys are permission-restricted but not encrypted by an OS keychain. Content sent to an external provider leaves the device as part of that provider request.
+
+Ticket chat intentionally allows development commands inside prepared checkouts. API-provider commands are subprocesses, not an operating-system sandbox; Claude allows development shell commands and Codex uses workspace-write with explicit checkout directories and network access. Use trusted repositories and review agent changes. Only an explicit publication request (including the Create PR button) instructs the agent to commit, push and create draft PRs. This instruction is an agent policy, not a security boundary. Review chat retains its narrower editing tools.
