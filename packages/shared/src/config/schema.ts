@@ -79,6 +79,8 @@ export const serviceSchema = z.object({
   repository: z.string().min(1),
   /** `command` runs `start` verbatim. `vite`/`node`/`python` use Gantry's managed runners (banner, initServer, flask). */
   runtime: z.enum(['command', 'vite', 'node', 'python']).default('command'),
+  /** Managed Node runtime: restart on imported source changes (enabled unless false). */
+  watch: z.boolean().optional(),
   /** Start this service only in checkouts containing this relative file. */
   whenFile: z.string().min(1).refine(value => !value.startsWith('/') && !value.split(/[\\/]/).includes('..'), 'Use a relative path inside the checkout').optional(),
   install: commandSchema.optional(),

@@ -71,6 +71,7 @@ The default scopes, used when `scopes` is omitted:
 | `id` | string | — (required) | Lowercase kebab-case. |
 | `repository` | string | — (required) | Repository id this service runs from. |
 | `runtime` | `command` \| `vite` \| `node` \| `python` | `command` | `command` runs `start` verbatim; the others use Gantry's managed runners (banner, `initServer`, Flask). |
+| `watch` | boolean | `true` for managed Node | With `runtime: node`, restart when the entry or imported modules change. Set `false` to disable. Other runtimes use their own reload commands. |
 | `install` | command | unset | Run once per (checkout, service); result is stamped so it is not repeated. |
 | `start` | command | unset | **Required for `runtime: command`.** Managed runtimes start themselves and ignore it. |
 | `healthUrl` | URL | unset | May reference `${port}`; probed for readiness. |
@@ -351,3 +352,9 @@ services:
 ```
 
 Use the variable name your application reads; Gantry does not assume a frontend framework or API setting. `dependsOn` alone controls startup order, not application URLs.
+
+### Backend source reloads
+
+Managed `runtime: node` services run with Node watch mode by default. Changes to the entry or imported modules restart the service process on its existing port; logs are retained. This includes modules loaded through the checkout's TypeScript loader. Set `watch: false` on a Node service to opt out. Arbitrary files read as data and newly created, not-yet-imported modules are not guaranteed to trigger a restart.
+
+For `runtime: command`, use the framework's development command or add `--watch --watch-preserve-output` to a Node command. Gantry does not wrap arbitrary commands in a second watcher. Vite already reloads its frontend independently. Backend restarts briefly interrupt requests and reset in-memory server state; they do not reload the browser page.

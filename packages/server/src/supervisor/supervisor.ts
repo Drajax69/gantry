@@ -307,6 +307,10 @@ export class Supervisor {
     if (service.runtime === 'vite') {
       for (const file of ['vite-runner.cjs', 'preview-diagnostics.js']) hash.update(await fsp.readFile(path.join(runnersDir(), file)));
     }
+    if (service.runtime === 'node') {
+      hash.update('node-watch-v1');
+      hash.update(await fsp.readFile(path.join(runnersDir(), 'node-runner.cjs')));
+    }
     hash.update(JSON.stringify({ service, port, environment, dependencies: this.dependencyVars(previewId, service) }));
     const repoPath = path.resolve(project.workspace, project.config.repositories.find((repo) => repo.id === service.repository)?.path ?? '.');
     for (const dir of new Set([checkoutPath, repoPath])) {
@@ -501,7 +505,7 @@ export class Supervisor {
     } else if (service.runtime === 'node') {
       if (!service.entry) throw new Error(`service ${service.id}: runtime "node" requires an "entry" module`);
       runtimeEnv.GANTRY_ENTRY = service.entry;
-      argv = [process.execPath, path.join(runners, 'node-runner.cjs')];
+      argv = [process.execPath, ...(service.watch === false ? [] : ['--watch', '--watch-preserve-output']), path.join(runners, 'node-runner.cjs')];
     } else if (service.runtime === 'python') {
       if (!service.entry) throw new Error(`service ${service.id}: runtime "python" requires an "entry" module name`);
       runtimeEnv.GANTRY_ENTRY = service.entry;

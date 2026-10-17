@@ -97,7 +97,8 @@ async function createFixtureWorkspace(): Promise<{ workspace: string; dataDir: s
     await write(path.join(repoDir, 'package.json'), JSON.stringify({ name: repo, version: '1.0.0' }));
     await write(path.join(repoDir, 'package-lock.json'), JSON.stringify({ name: repo, lockfileVersion: 3, packages: {} }));
     await write(path.join(repoDir, 'server.mjs'), SERVER_SCRIPT);
-    await write(path.join(repoDir, 'app.cjs'), "exports.app = require('node:http').createServer((_req, res) => res.end(JSON.stringify({ok:true, role:process.env.ROLE, port:Number(process.env.PORT), frontend:process.env.FRONTEND_URL})));");
+    await write(path.join(repoDir, 'app.cjs'), "const valid = require('./validator.cjs'); exports.app = require('node:http').createServer((_req, res) => res.end(JSON.stringify({ok:valid, role:process.env.ROLE, port:Number(process.env.PORT), frontend:process.env.FRONTEND_URL})));");
+    await write(path.join(repoDir, 'validator.cjs'), 'module.exports = true;');
     await write(path.join(repoDir, 'AGENTS.md'), `# ${repo} instructions\nBe tidy.\n`);
     await write(path.join(workspace, 'AGENTS.md'), '# Workspace instructions\n');
     await fs.rm(path.join(repoDir, 'README.md'), { force: true });
@@ -252,6 +253,23 @@ describe('full fixture lifecycle', () => {
     await waitUntilReady(app, primary.id);
     const backendAfter = app.db.prepare("SELECT pid FROM preview_services WHERE preview_id=? AND service_id='backend'").get(primary.id) as { pid: number };
     assert.equal(backendAfter.pid, backendBefore.pid, 'managed Node process is reused instead of duplicated');
+
+    // An imported validator changes without restarting Gantry or the frontend.
+    const frontendBefore = app.db.prepare("SELECT pid FROM preview_services WHERE preview_id=? AND service_id='frontend'").get(primary.id) as { pid: number };
+    const validator = path.join(workspace, 'backend', 'validator.cjs');
+    await write(validator + '.tmp', 'module.exports = false;');
+    await fs.rename(validator + '.tmp', validator); // Editors often save via atomic replacement.
+    await until(async () => {
+      try { return (await (await fetch(`http://127.0.0.1:${backendPort}/health`)).json() as {ok:boolean}).ok === false; }
+      catch { return false; }
+    }, 10_000, 'backend reloads imported source on the same port');
+    const frontendAfter = app.db.prepare("SELECT pid FROM preview_services WHERE preview_id=? AND service_id='frontend'").get(primary.id) as { pid: number };
+    assert.equal(frontendAfter.pid, frontendBefore.pid, 'source reload leaves frontend running');
+    await write(validator, 'module.exports = true;');
+    await until(async () => {
+      try { return (await (await fetch(`http://127.0.0.1:${backendPort}/health`)).json() as {ok:boolean}).ok === true; }
+      catch { return false; }
+    }, 10_000, 'subsequent source edits reload too');
 
     // Completing a ticket stops its branch services and removes its preview;
     // discovery must not restart it, while reopening makes it available again.
