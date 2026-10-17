@@ -21,6 +21,7 @@ export interface TicketConversation {
   model: string;
   sessionId: string;
   previousSessionIds?: string[];
+  promptPrefilled?: boolean;
   cwd: string;
   branch: string;
   checkouts: { repositoryId: string; path: string }[];
@@ -89,10 +90,12 @@ async function createCodexThread(record: Omit<TicketConversation, "sessionId">, 
     child.stdin.write(JSON.stringify({ method: "initialized" }) + "\n");
     if (existingId) {
       try {
-        const existing = await call("thread/read", { threadId: existingId, includeTurns: false });
+        const existing = await call("thread/read", { threadId: existingId, includeTurns: !record.promptPrefilled });
         const rollout = (existing.thread as { path?: string })?.path;
         if (!rollout) throw new Error("Codex returned no conversation file. Retry after updating Codex.");
         await fs.promises.access(rollout);
+        // Older associations with real turns already have a visible conversation.
+        if ((existing.thread as { turns?: unknown[] })?.turns?.length) record.promptPrefilled = true;
         return existingId;
       } catch (error) {
         const e = error as NodeJS.ErrnoException;
@@ -126,7 +129,11 @@ function claudeSessionExists(id: string) {
 }
 async function launch(record: TicketConversation) {
   if (record.provider === "codex" && process.platform === "darwin") {
-    await exec("open", [`codex://threads/${record.sessionId}`], { timeout: 15000 });
+    const url = new URL(`codex://threads/${record.sessionId}`);
+    if (!record.promptPrefilled) url.searchParams.set("prompt", record.context);
+    await exec("open", [url.toString()], { timeout: 15000 });
+    record.promptPrefilled = true;
+    save(record);
     return;
   }
   const args = record.provider === "claude"
@@ -190,7 +197,7 @@ export async function openTicketConversation(ticketId: string) {
     if (record.provider === "codex") {
       const id = await createCodexThread(record, record.sessionId);
       if (id !== record.sessionId) {
-        record = { ...record, previousSessionIds: [...(record.previousSessionIds ?? []), record.sessionId], sessionId: id };
+        record = { ...record, promptPrefilled: false, previousSessionIds: [...(record.previousSessionIds ?? []), record.sessionId], sessionId: id };
         save(record);
       }
     }

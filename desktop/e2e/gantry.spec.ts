@@ -200,6 +200,9 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   expect(initial.conversation.provider).toBe('codex');
   const id = initial.conversation.sessionId;
   expect(id).toMatch(/^[a-f0-9-]{36}$/);
+  const codexLaunches = () => fs.readFileSync(launches,'utf8').trim().split('\n').map(l=>JSON.parse(l)).filter(c=>c.command==='open').map(c=>new URL(c.args[0]));
+  expect(codexLaunches().at(-1)!.searchParams.get('prompt')).toContain('Workspace delivery rule: implement Test the unified workspace, validate, then create a PR.');
+  expect(codexLaunches().at(-1)!.searchParams.get('prompt')).toContain('Updated ticket details persist after reload.');
   const protocol = fs.readFileSync(path.resolve('e2e/.tmp/home/codex-protocol.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
   expect(protocol.filter(c=>c.method==='thread/start')).toHaveLength(1);
   expect(protocol.some(c=>c.method==='turn/start')).toBe(false);
@@ -211,6 +214,7 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   const responses = await Promise.all([1,2].map(()=>request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})));
   for (const response of responses) expect((await response.json()).conversation.sessionId).toBe(id);
   expect(fs.readFileSync(launches,'utf8')).toContain(id);
+  expect(codexLaunches().at(-1)!.searchParams.has('prompt')).toBe(false);
   await page.reload();
   await page.getByRole('button',{name:'Edit ticket Test the unified workspace'}).click();
   await page.getByRole('button',{name:'Cancel',exact:true}).click();
@@ -225,6 +229,7 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   fs.unlinkSync(path.resolve('e2e/.tmp/home', id+'.jsonl'));
   const recovered = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
   expect(recovered.conversation.sessionId).not.toBe(id);
+  expect(codexLaunches().at(-1)!.searchParams.get('prompt')).toContain('Workspace delivery rule:');
   expect(fs.existsSync(path.resolve('e2e/.tmp/home', recovered.conversation.sessionId+'.jsonl'))).toBe(true);
   const again = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
   expect(again.conversation.sessionId).toBe(recovered.conversation.sessionId);
