@@ -28,7 +28,7 @@ test('Gantry ticket, preview and review workflow stays inside Gantry', async ({ 
   await expect(page.getByText('Fixture preview ready', {exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Close details',exact:true}).click();
   await page.getByRole('button',{name:'Open review space for Test the unified workspace',exact:true}).click();
-  await expect(page).toHaveURL(/\/space\//);
+  await expect(page).toHaveURL(/review=/);
   await expect(page.getByRole('tab',{name:'fixture #1',exact:true})).toBeVisible();
   await expect(page.getByRole('banner').getByText('PR Lens',{exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Gantry',exact:true})).toHaveCount(0);
@@ -36,9 +36,14 @@ test('Gantry ticket, preview and review workflow stays inside Gantry', async ({ 
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(250);
   await page.screenshot({path:'e2e/.tmp/ticket-review-back.png'});
-  await page.getByRole('button',{name:'Back',exact:true}).click();
-  await expect(page).toHaveURL(/\/\?workspace=fixture&ticket=ticket-1$/);
+  await expect(page.getByRole('button',{name:'Back',exact:true})).toHaveCount(0);
+  await page.getByRole('navigation',{name:'Gantry workspace'}).getByRole('button',{name:/Tickets/}).click();
+  await expect(page).toHaveURL(/workspace=fixture$/);
   await expect(page.getByRole('region',{name:'Ticket board'})).toBeVisible();
+  await page.getByRole('navigation',{name:'Gantry workspace'}).getByRole('button',{name:/Reviews/}).click();
+  await expect(page.getByRole('tab',{name:'fixture #1',exact:true})).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('tab',{name:'fixture #1',exact:true})).toBeVisible();
   await page.request.patch('/api/spaces',{data:{id:initialSpaces.current,makeCurrent:true}});
 });
 
@@ -116,7 +121,7 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
     expect(first.tickets[2].reviewSpaceId).toBeTruthy();
     await request.patch('/api/spaces',{data:{id:one.id,active:'local/fixture/pull/1',file:{target:'local/fixture/pull/1',path:'src/math.ts'}}});
     await page.getByRole('button',{name:'Open review space for Shared title',exact:true}).first().click();
-    await expect(page).toHaveURL(new RegExp(`/space/${one.id}`));
+    await expect(page).toHaveURL(new RegExp(`review=${one.id}`));
     await expect(page.getByRole('tab',{name:'fixture #1',exact:true})).toBeVisible();
     await expect(page.getByRole('tab',{name:'fixture #2',exact:true})).toBeVisible();
     // A new PR arrives while the user remains in the space.
@@ -134,7 +139,7 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
     expect(completed.tickets[0].reviewSpaceId).toBeUndefined();
     expect((await (await request.get('/api/spaces')).json()).spaces.some((s:{id:string}) => s.id === one.id)).toBe(false);
     expect((await request.patch('/api/spaces',{data:{id:one.id,makeCurrent:true}})).status()).toBe(404);
-    await expect(page).toHaveURL(/\/$/, {timeout:15000});
+    await expect(page).not.toHaveURL(/review=/, {timeout:15000});
     await expect(page.getByRole('region',{name:'Done',exact:true}).getByRole('button',{name:/Open review space/})).toHaveCount(0);
     await expect(page.getByRole('region',{name:'Done',exact:true}).getByRole('button',{name:/Preview/})).toHaveCount(0);
     status.tickets[0].status = 'backlog';
@@ -148,7 +153,7 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
     await page.getByRole('button',{name:'Close details',exact:true}).click();
     await page.getByLabel('Workspace',{exact:true}).selectOption('other');
     await page.getByRole('button',{name:'Open review space for Shared title',exact:true}).click();
-    await expect(page).toHaveURL(new RegExp(`/space/${two.id}`));
+    await expect(page).toHaveURL(new RegExp(`review=${two.id}`));
     await expect(page.getByRole('tab')).toHaveCount(0);
   } finally {
     await request.post('http://127.0.0.1:3458/__fixture',{data:{status:null}});
@@ -331,6 +336,7 @@ test('sidebar embeds Main and in-progress ticket previews, excluding backlog and
     await page.goto('/');
     const nav=page.getByRole('navigation',{name:'Previews',exact:true});
     await expect(nav.getByRole('button')).toHaveCount(2);
+    await expect(page.getByRole('navigation',{name:'Gantry workspace'}).getByRole('button',{name:/Tickets/})).toHaveText('Tickets1');
     await nav.getByRole('button',{name:'Main',exact:true}).click();
     const frame=page.frameLocator('iframe[title="Main preview"]');
     await expect(frame.getByRole('heading',{name:'Embedded application'})).toBeVisible();
@@ -350,6 +356,7 @@ test('sidebar embeds Main and in-progress ticket previews, excluding backlog and
     await request.post('http://127.0.0.1:3458/__fixture',{data:{status}});
     await page.waitForTimeout(10500);
     await expect(nav.getByRole('button')).toHaveCount(1);
+    await expect(page.getByRole('navigation',{name:'Gantry workspace'}).getByRole('button',{name:/Tickets/})).toHaveText('Tickets0');
     await expect(page.frameLocator('iframe[title="Main preview"]').getByRole('heading')).toBeVisible();
   } finally {await request.post('http://127.0.0.1:3458/__fixture',{data:{status:null}});}
 });
@@ -363,14 +370,15 @@ test('preview developer tools capture console, errors, fetch and XHR without rel
   await page.route('http://127.0.0.1:6500/**',route=> {
     const url=new URL(route.request().url());
     if(url.pathname==='/api/fail') return route.fulfill({status:503,contentType:'application/json',body:'{"ok":false}'});
+    if(url.pathname==='/api/large') { expect(route.request().postData()).toBe('request clone body'); return route.fulfill({contentType:'text/plain',body:'x'.repeat(20000)}); }
     if(url.pathname==='/api/ok') return route.fulfill({status:200,contentType:'application/json',body:'{"ok":true}'});
     return route.fulfill({contentType:'text/html',body:`<script>${instrumentation}</script><h1>Diagnostic fixture</h1><label>Draft<input></label><button id="run">Run requests</button><script>
       console.log('Startup message');
       document.querySelector('#run').onclick=()=>{
         console.warn('Example warning');
         console.log('Structured value',{count:1});
-        fetch('/api/fail').then(r=>r.json()).then(body=>console.log('Response body intact',body.ok));
-        const xhr=new XMLHttpRequest();xhr.open('GET','/api/ok');xhr.send();
+        fetch('/api/fail',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Test':'fetch-header'},body:JSON.stringify({question:'fetch payload'})}).then(r=>r.json()).then(body=>console.log('Response body intact',body.ok));
+        const xhr=new XMLHttpRequest();xhr.open('POST','/api/ok');xhr.setRequestHeader('Content-Type','application/json');xhr.setRequestHeader('X-Debug-Test','xhr-header');xhr.send(JSON.stringify({question:'xhr payload'}));
         Promise.reject(new Error('Example rejected promise'));
         throw new Error('Example uncaught error');
       };
@@ -399,6 +407,23 @@ test('preview developer tools capture console, errors, fetch and XHR without rel
     await panel.getByRole('tab',{name:/Network/}).click();
     await expect(panel.locator('summary').filter({hasText:'/api/fail'})).toContainText('503');
     await expect(panel.locator('summary').filter({hasText:'/api/ok'})).toContainText('200');
+    const failed=panel.locator('details').filter({has:page.locator('summary').filter({hasText:'/api/fail'})});
+    await expect(failed.locator('summary').getByText('503',{exact:true})).toHaveClass(/text-red/);
+    await failed.locator('summary').click();
+    await expect(failed.getByRole('tabpanel',{name:'Request details'})).toContainText('fetch payload');
+    await expect(failed.getByRole('tabpanel',{name:'Request details'})).toContainText('fetch-header');
+    await failed.getByRole('tab',{name:'Response',exact:true}).click();
+    await expect(failed.getByRole('tabpanel',{name:'Response details'})).toContainText('"ok": false');
+    await failed.locator('summary').click();
+    const success=panel.locator('details').filter({has:page.locator('summary').filter({hasText:'/api/ok'})});
+    await expect(success.locator('summary').getByText('200',{exact:true})).toHaveClass(/text-emerald/);
+    await success.locator('summary').click();
+    await expect(success.getByRole('tabpanel',{name:'Request details'})).toContainText('xhr payload');
+    await expect(success.getByRole('tabpanel',{name:'Request details'})).toContainText('xhr-header');
+    await success.getByRole('tab',{name:'Response',exact:true}).click();
+    await expect(success.getByRole('tabpanel',{name:'Response details'})).toContainText('"ok": true');
+    await page.screenshot({path:'e2e/.tmp/network-response.png'});
+    await success.locator('summary').click();
     await panel.getByLabel('XHR only').check();
     await expect(panel.locator('summary')).toHaveCount(1);
     await expect(panel.locator('summary')).toContainText('/api/ok');
@@ -409,6 +434,18 @@ test('preview developer tools capture console, errors, fetch and XHR without rel
     await page.screenshot({path:'e2e/.tmp/preview-network-panel.png'});
     await page.setViewportSize({width:900,height:650});
     await page.screenshot({path:'e2e/.tmp/preview-network-panel-compact.png'});
+    const result = await frame.locator('body').evaluate(async () => {
+      const response = await fetch(new Request('/api/large',{method:'POST',body:'request clone body'}));
+      return (await response.text()).length;
+    });
+    expect(result).toBe(20000);
+    await panel.getByLabel('Errors only').uncheck();
+    await panel.getByLabel('Filter logs').fill('/api/large');
+    await panel.locator('summary').click();
+    await expect(panel.getByRole('tabpanel',{name:'Request details'})).toContainText('request clone body');
+    await panel.getByRole('tab',{name:'Response',exact:true}).click();
+    await expect(panel.getByRole('tabpanel',{name:'Response details'})).toContainText('[Truncated at 16 KB]');
+    await panel.getByLabel('Filter logs').fill('');
     await panel.getByRole('button',{name:'Clear logs'}).click();
     await expect(panel.locator('summary')).toHaveCount(0);
     await panel.getByRole('tab',{name:'Logs',exact:true}).click();

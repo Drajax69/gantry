@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { ArrowUpRightIcon, GitBranchIcon, GitPullRequestIcon, LayoutListIcon, Loader2Icon, MonitorIcon, PlusIcon, RefreshCwIcon, MessageSquareIcon, CircleDashedIcon, CircleDotIcon, CircleCheckIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,10 +10,11 @@ import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SettingsLink } from "@/components/settings-link";
 import { cn } from "@/lib/utils";
-import { api, spaceHref } from "@/lib/client/api";
+import { api } from "@/lib/client/api";
 import { gantry, type ProjectView, type StatusView, type TicketView } from "@/lib/client/gantry";
 
 import { useTicketColors } from "./ticket-colors";
+import { Workspace as ReviewWorkspace } from "@/components/space/workspace";
 import { PreviewPane } from "./preview-pane";
 import { WorkspacePromptDialog } from "./workspace-prompt-dialog";
 import { DeleteTicketDialog } from "./delete-ticket-dialog";
@@ -31,7 +31,7 @@ function State({ value }: { value: string }) {
 }
 
 export function GantryWorkspace() {
-  const router = useRouter();
+  const [reviewSpace, setReviewSpace] = useState<string | null>(null);
   const [data, setData] = useState<StatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [projectId, setProjectId] = useState("");
@@ -66,6 +66,7 @@ export function GantryWorkspace() {
       const params = new URLSearchParams(window.location.search);
       setProjectId(params.get("workspace") || localStorage.getItem("gantry-workspace") || "");
       setSelected(params.get("ticket"));
+      if (params.get("review")) { setReviewSpace(params.get("review")); setArea("reviews"); }
       void refresh();
     });
     const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 10000);
@@ -99,7 +100,7 @@ export function GantryWorkspace() {
         const result = await api.addToSpace(url, targetSpace);
         targetSpace = result.space.id;
       }
-      if (targetSpace) router.push(spaceHref(targetSpace));
+      if (targetSpace) { setReviewSpace(targetSpace); setArea("reviews"); setSelected(null); setCreating(false); }
     });
   }
   async function showLog(title: string, url: string) {
@@ -125,6 +126,17 @@ export function GantryWorkspace() {
     if (!moving || moving.status === status) return;
     await act(() => gantry.updateTicket(id, { status }), `Moved to ${labels[status]}`);
   }
+  const activeProjectId = project?.id;
+  useEffect(() => {
+    if (!activeProjectId) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("workspace", activeProjectId);
+    if (area === "reviews" && reviewSpace) params.set("review", reviewSpace);
+    else params.delete("review");
+    params.delete("ticket");
+    window.history.replaceState(null, "", `/?${params}`);
+  }, [area, reviewSpace, activeProjectId]);
+  const navigateReview = useCallback((id: string | null) => { setReviewSpace(id); setArea(current => id ? "reviews" : current === "reviews" ? "tickets" : current); }, []);
   const changeArea = (next: Area) => { setArea(next); setLog(null); setCreating(false); };
 
   return <div className="gantry-workspace flex h-full min-h-0 flex-col bg-background">
@@ -138,13 +150,13 @@ export function GantryWorkspace() {
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <aside className="flex max-h-[35dvh] overflow-y-auto md:max-h-none shrink-0 flex-col gap-5 border-b bg-muted/20 p-4 md:w-56 md:border-r md:border-b-0">
         <div className="space-y-2"><label htmlFor="gantry-project" className="text-xs font-medium text-muted-foreground">Workspace</label>
-          <select id="gantry-project" className={cn(selectClass, "w-full")} value={project?.id ?? ""} onChange={(e) => { setProjectId(e.target.value); localStorage.setItem("gantry-workspace", e.target.value); setSelected(null); setCreating(false); setLog(null); }}>
+          <select id="gantry-project" className={cn(selectClass, "w-full")} value={project?.id ?? ""} onChange={(e) => { setReviewSpace(null); setArea("tickets"); setProjectId(e.target.value); localStorage.setItem("gantry-workspace", e.target.value); setSelected(null); setCreating(false); setLog(null); }}>
             {!data?.projects.length && <option value="">No workspace connected</option>}
             {data?.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
         <nav aria-label="Gantry workspace" className="flex gap-1 md:flex-col">
-          {([["tickets", "Tickets", LayoutListIcon, tickets.length], ["reviews", "Reviews", GitPullRequestIcon, pulls.length]] as const).map(([id, label, Icon, count]) =>
+          {([["tickets", "Tickets", LayoutListIcon, tickets.filter(t => t.status === "in_progress").length], ["reviews", "Reviews", GitPullRequestIcon, pulls.length]] as const).map(([id, label, Icon, count]) =>
             <Button key={id} variant={area === id ? "secondary" : "ghost"} className={cn("justify-start", area === id && (id === "tickets" ? "gantry-nav-tickets" : "gantry-nav-reviews"))} aria-current={area === id ? "page" : undefined} onClick={() => changeArea(id)}><Icon />{label}<span className="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">{count}</span></Button>)}
         </nav>
         {project && <nav aria-label="Previews" className="space-y-1"><h2 className="mb-2 flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground"><MonitorIcon className="size-4" />Previews</h2>{previewEntries.map(entry => <Button key={entry.id} variant={area === "previews" && activePreview.id === entry.id ? "secondary" : "ghost"} className={cn("h-auto min-h-8 w-full justify-start text-left", area === "previews" && activePreview.id === entry.id && "gantry-nav-reviews")} aria-current={area === "previews" && activePreview.id === entry.id ? "page" : undefined} onClick={() => { setPreviewTicket(entry.id); changeArea("previews"); closeTicket(); }}><span className="size-1.5 shrink-0 rounded-full bg-current" /><span className="min-w-0 whitespace-normal break-words">{entry.name}</span></Button>)}</nav>}
@@ -155,7 +167,7 @@ export function GantryWorkspace() {
         </div>
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
-        {area !== "previews" && <div className="flex flex-wrap items-center gap-3 border-b px-6 py-5">
+        {area !== "previews" && !(area === "reviews" && reviewSpace) && <div className="flex flex-wrap items-center gap-3 border-b px-6 py-5">
           <div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">{area === "tickets" ? "Tickets" : "Ready for review"}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{area === "tickets" ? "Create a worktree, build the feature, and open a pull request." : "Review related pull requests together."}</p></div>
           <Button variant="outline" disabled={busy} onClick={() => void refresh()} aria-label="Refresh Gantry"><RefreshCwIcon /></Button>
@@ -207,7 +219,8 @@ export function GantryWorkspace() {
         </section>)}{!ticketPreviews.length && <p className="p-6 text-sm text-muted-foreground">No preview for this ticket yet. Create its worktrees from Details or start work in Chat.</p>}</section>}
           </div></TicketDialog>}
         </div>}
-        {project && area === "reviews" && <div className="divide-y">{pulls.map((g) => <section key={g.id} className="space-y-4 p-6"><div className="flex flex-wrap items-center gap-3"><GitBranchIcon className="size-4 text-muted-foreground" /><h2 className="min-w-0 flex-1 break-all font-medium">{g.branch}</h2><State value={g.ready ? "ready" : "blocked"} /><Button size="sm" disabled={busy} onClick={() => void review(Object.values(g.pulls).map((p) => p.url))}>Review {Object.keys(g.pulls).length > 1 ? "together" : "PR"}<ArrowUpRightIcon /></Button></div>
+        {project && reviewSpace && <div className={area === "reviews" ? "flex min-h-0 flex-1 flex-col" : "hidden"}><ReviewWorkspace key={reviewSpace} spaceId={reviewSpace} initialTarget={null} initialFile={null} onNavigateSpace={navigateReview} /></div>}
+        {project && area === "reviews" && !reviewSpace && <div className="divide-y">{pulls.map((g) => <section key={g.id} className="space-y-4 p-6"><div className="flex flex-wrap items-center gap-3"><GitBranchIcon className="size-4 text-muted-foreground" /><h2 className="min-w-0 flex-1 break-all font-medium">{g.branch}</h2><State value={g.ready ? "ready" : "blocked"} /><Button size="sm" disabled={busy} onClick={() => void review(Object.values(g.pulls).map((p) => p.url))}>Review {Object.keys(g.pulls).length > 1 ? "together" : "PR"}<ArrowUpRightIcon /></Button></div>
           {Object.entries(g.pulls).map(([repo, p]) => <div key={repo} className="flex flex-wrap items-center gap-3 text-sm"><GitPullRequestIcon className="size-4 shrink-0 text-muted-foreground" /><button className="min-w-0 flex-1 break-words text-left hover:underline" disabled={busy} onClick={() => void review([p.url])}>{repo} #{p.number} · {p.title}</button><a href={p.url} target="_blank" rel="noreferrer" className="text-xs text-muted-foreground underline underline-offset-4">GitHub</a></div>)}{g.blockers.length > 0 && <p className="text-xs text-muted-foreground">{g.blockers.join(" · ")}</p>}
         </section>)}{!pulls.length && <p className="p-6 text-sm text-muted-foreground">No open pull requests. Sync remote to check for new reviews.</p>}</div>}
       </main>

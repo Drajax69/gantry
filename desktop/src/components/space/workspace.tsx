@@ -19,12 +19,13 @@ import { SpaceSwitcher } from "./space-switcher";
 import { PrStateIcon } from "@/components/pr-state";
 
 interface Props {
+  onNavigateSpace?: (id: string | null) => void;
   spaceId: string;
   initialTarget: string | null;
   initialFile: string | null;
 }
 
-export function Workspace({ spaceId, initialTarget, initialFile }: Props) {
+export function Workspace({ spaceId, initialTarget, initialFile, onNavigateSpace }: Props) {
   const router = useRouter();
   const [data, setData] = useState<SpacesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +91,7 @@ export function Workspace({ spaceId, initialTarget, initialFile }: Props) {
         await gantry.status();
         const next = await api.spaces();
         if (live) {
-          if (!next.spaces.some(s => s.id === spaceId)) { router.replace("/"); return; }
+          if (!next.spaces.some(s => s.id === spaceId)) { if (onNavigateSpace) onNavigateSpace(null); else router.replace("/"); return; }
           setData(next);
           const first = next.spaces.find(s => s.id === spaceId)?.targets[0];
           if (first) { setActive(a => a ?? first); setVisited(v => new Set(v).add(first)); }
@@ -101,11 +102,12 @@ export function Workspace({ spaceId, initialTarget, initialFile }: Props) {
     void refresh();
     const timer = setInterval(() => void refresh(), 10000);
     return () => { live = false; clearInterval(timer); };
-  }, [gantryTicket, spaceId, router]);
+  }, [gantryTicket, spaceId, router, onNavigateSpace]);
 
   // Address bar mirrors the open tab and file.
   const syncUrl = useCallback(
     (target: string | null) => {
+      if (onNavigateSpace) return;
       const params = new URLSearchParams();
       if (target) params.set("pr", target);
       const file = target ? files.current[target] : undefined;
@@ -113,7 +115,7 @@ export function Workspace({ spaceId, initialTarget, initialFile }: Props) {
       const qs = params.toString();
       window.history.replaceState(null, "", `${spaceHref(spaceId)}${qs ? `?${qs}` : ""}`);
     },
-    [spaceId],
+    [spaceId, onNavigateSpace],
   );
 
   function open(target: string) {
@@ -187,13 +189,13 @@ export function Workspace({ spaceId, initialTarget, initialFile }: Props) {
 
   async function switchTo(id: string) {
     await api.updateSpace(id, { makeCurrent: true }).catch(() => {});
-    router.push(spaceHref(id));
+    if (onNavigateSpace) onNavigateSpace(id); else router.push(spaceHref(id));
   }
 
   async function create() {
     try {
       const s = await api.createSpace();
-      router.push(spaceHref(s.id));
+      if (onNavigateSpace) onNavigateSpace(s.id); else router.push(spaceHref(s.id));
     } catch (err) {
       toast.error((err as Error).message);
     }
@@ -213,7 +215,7 @@ export function Workspace({ spaceId, initialTarget, initialFile }: Props) {
     try {
       const res = await api.deleteSpace(id);
       setData(res);
-      if (id === spaceId) router.push(spaceHref(res.current));
+      if (id === spaceId) { if (onNavigateSpace) onNavigateSpace(res.current); else router.push(spaceHref(res.current)); }
     } catch (err) {
       toast.error((err as Error).message);
     }
@@ -247,7 +249,7 @@ export function Workspace({ spaceId, initialTarget, initialFile }: Props) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="app-bar flex h-12 shrink-0 items-center gap-2 border-b px-3">
-        <BackToTickets projectId={space.gantry?.projectId} ticketId={space.gantry?.ticketId} />
+        {!onNavigateSpace && <BackToTickets projectId={space.gantry?.projectId} ticketId={space.gantry?.ticketId} />}
         <SpaceSwitcher spaces={data.spaces} current={space} onSwitch={switchTo} onCreate={create} onRename={rename} onDelete={remove} />
         <nav role="tablist" aria-label="Pull requests in this space" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           {tabs.map((t) => {
@@ -302,8 +304,7 @@ export function Workspace({ spaceId, initialTarget, initialFile }: Props) {
             </Button>
           )}
         </nav>
-        <SettingsLink />
-        <ThemeToggle />
+        {!onNavigateSpace && <><SettingsLink /><ThemeToggle /></>}
       </header>
 
       <div className="relative min-h-0 flex-1">
