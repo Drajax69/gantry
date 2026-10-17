@@ -375,6 +375,23 @@ test('sidebar embeds Main and in-progress ticket previews, excluding backlog and
     await expect(frame.getByRole('heading')).toBeVisible();
     await nav.getByRole('button',{name:'online exam runtime implementation',exact:true}).click();
     await expect(page.frameLocator('iframe[title="online exam runtime implementation preview"]').getByRole('heading')).toBeVisible();
+    const activeFrame = page.frameLocator('iframe[title="online exam runtime implementation preview"]');
+    await activeFrame.getByLabel('Draft').fill('keep ticket draft');
+    await expect(page.getByRole('button', {name:'Open chat',exact:true})).toBeVisible();
+    await expect(page.getByRole('button', {name:'Review',exact:true})).toBeVisible();
+    await page.getByRole('navigation',{name:'Gantry workspace'}).getByRole('button',{name:/Tickets/}).click();
+    await nav.getByRole('button',{name:'online exam runtime implementation',exact:true}).click();
+    await expect(activeFrame.getByLabel('Draft')).toHaveValue('keep ticket draft');
+    await nav.getByRole('button',{name:'Main',exact:true}).click();
+    await expect(frame.getByLabel('Draft')).toHaveValue(''); // The earlier /next navigation loaded a fresh page.
+    await frame.getByLabel('Draft').fill('keep main draft');
+    await nav.getByRole('button',{name:'online exam runtime implementation',exact:true}).click();
+    await expect(activeFrame.getByLabel('Draft')).toHaveValue('keep ticket draft');
+    await page.getByRole('button',{name:'Reload',exact:true}).click();
+    await expect(activeFrame.getByLabel('Draft')).toHaveValue('');
+    await nav.getByRole('button',{name:'Main',exact:true}).click();
+    await expect(frame.getByLabel('Draft')).toHaveValue('keep main draft');
+    await nav.getByRole('button',{name:'online exam runtime implementation',exact:true}).click();
     await page.setViewportSize({width:900,height:650});
     await page.screenshot({path:'e2e/.tmp/sidebar-preview-compact.png'});
     await page.getByRole('button',{name:'Toggle theme'}).click();

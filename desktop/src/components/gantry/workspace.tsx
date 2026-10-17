@@ -183,7 +183,15 @@ export function GantryWorkspace() {
         {data && !project && <div className="max-w-xl space-y-3 p-8"><h2 className="text-lg font-medium">Connect your first workspace</h2><p className="text-sm leading-relaxed text-muted-foreground">Choose a Git repository or a folder of repositories. Gantry creates local configuration automatically. Configure your provider once in Settings, then start a ticket.</p><Button onClick={() => setAdding(true)}>Add workspace</Button></div>}
         {area !== "previews" && jobs.length > 0 && <details className="border-b px-6 py-3 text-xs text-muted-foreground"><summary className="cursor-pointer">Activity · {jobs.length} recent jobs</summary><div className="mt-3 space-y-2">{jobs.map((j) => <div key={j.id} className="flex flex-wrap items-center gap-2"><State value={j.state} /><span>{j.kind} · {j.detail || j.phase || j.error || "Queued"}</span>{j.error && <span className="text-destructive">{j.error}</span>}</div>)}</div></details>}
 
-        {project && area === "previews" && <PreviewPane key={`${project.id}:${activePreview.id}`} name={activePreview.name} preview={activePreview.preview} refresh={refresh} />}
+        {project && previewEntries.map(entry => {
+          const owner = tickets.find(ticket => ticket.id === entry.id);
+          const active = area === "previews" && activePreview.id === entry.id;
+          return <div key={`${project.id}:${entry.id}`} className={active ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+            <PreviewPane active={active} name={entry.name} preview={entry.preview} refresh={refresh} openingChat={busy}
+              onOpenChat={owner ? () => void act(() => openTicketChat(owner.id)) : undefined}
+              onReview={owner ? () => void review([], owner) : undefined} reviewDisabled={busy || !owner?.reviewSpaceId} />
+          </div>;
+        })}
         {project && area === "tickets" && <div className="min-h-0 flex-1">
           <section className="grid grid-cols-1 divide-y md:grid-cols-3 md:divide-x md:divide-y-0" aria-label="Ticket board">
             {["backlog", "in_progress", "done"].map(status => {
