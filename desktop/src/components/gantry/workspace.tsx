@@ -155,13 +155,13 @@ export function GantryWorkspace() {
         </div>
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
-        <div className="flex flex-wrap items-center gap-3 border-b px-6 py-5">
-          <div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">{area === "tickets" ? "Tickets" : area === "previews" ? activePreview.name : "Ready for review"}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{area === "tickets" ? "Create a worktree, build the feature, and open a pull request." : area === "previews" ? (activePreview.id === "main" ? "Main branch · always available" : "In-progress ticket preview") : "Review related pull requests together."}</p></div>
+        {area !== "previews" && <div className="flex flex-wrap items-center gap-3 border-b px-6 py-5">
+          <div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">{area === "tickets" ? "Tickets" : "Ready for review"}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{area === "tickets" ? "Create a worktree, build the feature, and open a pull request." : "Review related pull requests together."}</p></div>
           <Button variant="outline" disabled={busy} onClick={() => void refresh()} aria-label="Refresh Gantry"><RefreshCwIcon /></Button>
           {area === "tickets" && project && <Button disabled={busy} onClick={() => { setCreating(true); setSelected(null); setLog(null); setTicketTab("details"); }}><PlusIcon /> New ticket</Button>}
           {area === "reviews" && project && <Button variant="outline" disabled={busy} onClick={() => void act(() => gantry.refreshProject(project.id), "Remote sync queued")}><RefreshCwIcon /> Sync remote</Button>}
-        </div>
+        </div>}
         {error && <div role="alert" className="border-b bg-destructive/5 px-6 py-3 text-sm text-destructive">{error} {data && "Showing the last loaded state."}</div>}
         {adding && <form className="flex flex-wrap items-end gap-3 border-b p-6" onSubmit={(e) => { e.preventDefault(); void act(() => gantry.addProject(workspace.trim()), "Workspace connected").then((ok) => { if (ok) { setAdding(false); setWorkspace(""); } }); }}>
           <label className="min-w-64 flex-1 space-y-2 text-sm">Workspace folder<Input value={workspace} onChange={(e) => setWorkspace(e.target.value)} placeholder="/path/to/repository or workspace" required /></label>
