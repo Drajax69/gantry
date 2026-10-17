@@ -125,7 +125,7 @@ export function syncGantrySpaces(status: StatusView): Record<string, string> {
     const project = status.projects.find(p => p.id === ticket.projectId);
     if (!project) continue;
     let space = data.spaces.find(s => s.gantry?.workspace === project.workspace && s.gantry.ticketId === ticket.id);
-    if (ticket.status === "done") {
+    if (ticket.status !== "in_progress") {
       if (space?.gantry && !space.gantry.completed) { space.gantry.completed = true; changed = true; }
       continue;
     }

@@ -19,6 +19,9 @@ test('Gantry ticket, preview and review workflow stays inside Gantry', async ({ 
   await page.reload();
   await page.locator('article').filter({hasText:'Test the unified workspace'}).getByRole('button').first().click();
   await expect(page.getByText('Updated ticket details persist after reload.',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Open chat',exact:true})).toHaveCount(0);
+  await page.getByRole('combobox',{name:'Stage',exact:true}).selectOption('in_progress');
+  await expect(page.getByRole('button',{name:'Open chat',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'Create worktrees',exact:true}).click();
   await expect(page.getByText('Ticket worktrees are ready',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Close details',exact:true}).click();
@@ -45,6 +48,7 @@ test('Gantry ticket, preview and review workflow stays inside Gantry', async ({ 
   await page.reload();
   await expect(page.getByRole('tab',{name:'fixture #1',exact:true})).toBeVisible();
   await page.request.patch('/api/spaces',{data:{id:initialSpaces.current,makeCurrent:true}});
+  fs.rmSync(path.resolve('e2e/.tmp/home/ticket-conversations/ticket-1.json'),{force:true});
 });
 
 test('Gantry proxy rejects cross-origin mutations and unsupported routes', async ({ request }) => {
@@ -102,7 +106,7 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
   test.setTimeout(90000);
   const base = await (await request.get('http://127.0.0.1:3458/api/status')).json();
   const originalSpaces = await (await request.get('/api/spaces')).json();
-  const ticket = (id:string,projectId:string,branch:string) => ({id,projectId,title:'Shared title',description:'',status:'backlog',scope:'both',branch,pullRequests:[],artifacts:[],run:null});
+  const ticket = (id:string,projectId:string,branch:string) => ({id,projectId,title:'Shared title',description:'',status:'in_progress',scope:'both',branch,pullRequests:[],artifacts:[],run:null});
   const status = {...base,projects:[base.projects[0],{...base.projects[0],id:'other',name:'Other workspace',workspace:'/fixture/other'}],
     tickets:[ticket('linked-one','fixture','ticket/review'),ticket('linked-two','other','ticket/review'),ticket('empty-ticket','fixture','feature/empty')],
     pulls:[{...base.pulls[0],pulls:{frontend:base.pulls[0].pulls.frontend,backend:{number:2,url:'https://github.com/local/fixture/pull/2',title:'Backend fix'}}}],
@@ -142,7 +146,7 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
     await expect(page).not.toHaveURL(/review=/, {timeout:15000});
     await expect(page.getByRole('region',{name:'Done',exact:true}).getByRole('button',{name:/Open review space/})).toHaveCount(0);
     await expect(page.getByRole('region',{name:'Done',exact:true}).getByRole('button',{name:/Preview/})).toHaveCount(0);
-    status.tickets[0].status = 'backlog';
+    status.tickets[0].status = 'in_progress';
     await request.post('http://127.0.0.1:3458/__fixture',{data:{status}});
     const reopened = await (await request.get('/api/gantry/api/status')).json();
     expect(reopened.tickets[0].reviewSpaceId).toBe(one.id);
@@ -188,7 +192,8 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   await expect(page.getByLabel('Starting prompt',{exact:true})).toHaveValue('Workspace delivery rule: implement ${ticket.title}, validate, then create a PR.');
   await page.screenshot({path:'e2e/.tmp/workspace-prompt.png'});
   await page.getByRole('button',{name:'Cancel',exact:true}).click();
-  await page.getByRole('button',{name:'Open chat for Test the unified workspace'}).click();
+  await expect(page.getByRole('button',{name:'Open chat for Test the unified workspace'})).toHaveCount(0);
+  await card.dragTo(page.getByRole('region',{name:'In progress',exact:true}));
   await expect(page.getByText('Opened this ticket in Codex',{exact:true})).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   const initial = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'load'}})).json();
@@ -198,6 +203,8 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   const protocol = fs.readFileSync(path.resolve('e2e/.tmp/home/codex-protocol.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
   expect(protocol.filter(c=>c.method==='thread/start')).toHaveLength(1);
   expect(protocol.some(c=>c.method==='turn/start')).toBe(false);
+  expect(protocol.some(c=>c.method==='thread/inject_items')).toBe(true);
+  expect(fs.existsSync(path.resolve('e2e/.tmp/home', id+'.jsonl'))).toBe(true);
   expect(protocol.find(c=>c.method==='thread/start').params.developerInstructions).toContain('Workspace delivery rule: implement Test the unified workspace, validate, then create a PR.');
   await request.post('/api/gantry/api/projects/fixture/chat-prompt',{data:{prompt:'Changed for future conversations'}});
   await request.patch('/api/agents',{data:{id:'claude',current:true}});
@@ -215,6 +222,12 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   await page.keyboard.press('Escape');
   expect((await request.post('/api/ticket-chat',{headers:{Origin:'https://other.example'},data:{ticketId:'ticket-1',action:'open'}})).status()).toBe(403);
   expect((await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'send',text:'Do not run'}})).status()).toBe(400);
+  fs.unlinkSync(path.resolve('e2e/.tmp/home', id+'.jsonl'));
+  const recovered = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
+  expect(recovered.conversation.sessionId).not.toBe(id);
+  expect(fs.existsSync(path.resolve('e2e/.tmp/home', recovered.conversation.sessionId+'.jsonl'))).toBe(true);
+  const again = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
+  expect(again.conversation.sessionId).toBe(recovered.conversation.sessionId);
   await request.patch('/api/agents',{data:{id:agents.current,current:true}});
 });
 

@@ -16,9 +16,17 @@ if (process.argv[2] === "app-server") {
     let result = {};
     if (message.method === "thread/start") {
       const threads = fs.existsSync(threadsFile) ? JSON.parse(fs.readFileSync(threadsFile,"utf8")) : [];
-      const thread = {id:require("node:crypto").randomUUID(),...message.params};
+      const id=require("node:crypto").randomUUID();
+      const thread = {id,path:path.join(process.env.PR_LENS_HOME, id+".jsonl"),...message.params};
       threads.push(thread); fs.writeFileSync(threadsFile,JSON.stringify(threads));
       result = {thread};
+    }
+    if (message.method === "thread/read" || message.method === "thread/inject_items") {
+      const threads=JSON.parse(fs.readFileSync(threadsFile,"utf8"));
+      const thread=threads.find(t=>t.id===message.params.threadId);
+      if(!thread) { process.stdout.write(JSON.stringify({id:message.id,error:{message:"no rollout found for thread id"}})+"\n"); return; }
+      if(message.method === "thread/inject_items") fs.writeFileSync(thread.path,JSON.stringify(message.params.items));
+      result={thread};
     }
     process.stdout.write(JSON.stringify({id:message.id,result})+"\n");
   });

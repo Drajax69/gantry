@@ -20,6 +20,7 @@ export interface TicketConversation {
   providerName: string;
   model: string;
   sessionId: string;
+  previousSessionIds?: string[];
   cwd: string;
   branch: string;
   checkouts: { repositoryId: string; path: string }[];
@@ -51,7 +52,7 @@ function contextFor(work: TicketWorkspace) {
 }
 
 /** Create a durable Codex thread without sending a turn or invoking a model. */
-async function createCodexThread(record: Omit<TicketConversation, "sessionId">): Promise<string> {
+async function createCodexThread(record: Omit<TicketConversation, "sessionId">, existingId?: string): Promise<string> {
   const child = spawn(CLI.codex, ["app-server"], { cwd: record.cwd, stdio: ["pipe", "pipe", "pipe"] });
   let nextId = 0;
   let buffer = "";
@@ -84,8 +85,20 @@ async function createCodexThread(record: Omit<TicketConversation, "sessionId">):
     child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
   });
   try {
-    await call("initialize", { clientInfo: { name: "gantry", version: "0.1.0" } });
+    await call("initialize", { clientInfo: { name: "gantry", version: "0.1.0" }, capabilities: { experimentalApi: true } });
     child.stdin.write(JSON.stringify({ method: "initialized" }) + "\n");
+    if (existingId) {
+      try {
+        const existing = await call("thread/read", { threadId: existingId, includeTurns: false });
+        const rollout = (existing.thread as { path?: string })?.path;
+        if (!rollout) throw new Error("Codex returned no conversation file. Retry after updating Codex.");
+        await fs.promises.access(rollout);
+        return existingId;
+      } catch (error) {
+        const e = error as NodeJS.ErrnoException;
+        if (e.code !== "ENOENT" && !/no rollout found|thread .*not found|failed to resolve rollout path|does not exist/i.test(e.message)) throw error;
+      }
+    }
     const response = await call("thread/start", {
       cwd: record.cwd, ephemeral: false, developerInstructions: record.context,
       sandbox: "workspace-write", approvalPolicy: "on-request",
@@ -94,7 +107,11 @@ async function createCodexThread(record: Omit<TicketConversation, "sessionId">):
     });
     const id = (response.thread as { id?: string })?.id;
     if (!id || !/^[\w-]+$/.test(id)) throw new Error("Codex did not return a conversation ID.");
-    // Persist before optional naming or external launch, so a retry cannot duplicate it.
+    // thread/start is lazy: materialize history without starting model execution.
+    await call("thread/inject_items", { threadId: id, items: [{ type: "message", role: "user", content: [{ type: "input_text", text: record.context }] }] });
+    const rollout = (response.thread as { path?: string })?.path;
+    if (!rollout) throw new Error("Codex did not return a durable conversation path.");
+    await fs.promises.access(rollout);
     save({ ...record, sessionId: id });
     await call("thread/name/set", { threadId: id, name: `Gantry · ${record.branch}` }).catch(() => {});
     return id;
@@ -150,6 +167,7 @@ export async function openTicketConversation(ticketId: string) {
     let record = conversationFor(ticketId);
     // Resolve the ticket even on resume; deleted tickets must not launch a stale record.
     const existing = await ticketContext(ticketId);
+    if (existing.ticket.status !== "in_progress") throw httpError(409, "Move this ticket to In progress to open its conversation.");
     if (pendingFor(`ticket/${ticketId}`)) throw httpError(409, "The previous embedded agent is still running. Wait for it to finish, then retry.");
     if (!record) {
       const agent = getAgent();
@@ -168,6 +186,13 @@ export async function openTicketConversation(ticketId: string) {
       save(record);
     } else if (record.branch !== existing.ticket.branch) {
       throw httpError(409, "This ticket is linked to a conversation on its original branch. Restore that branch to reopen the same conversation.");
+    }
+    if (record.provider === "codex") {
+      const id = await createCodexThread(record, record.sessionId);
+      if (id !== record.sessionId) {
+        record = { ...record, previousSessionIds: [...(record.previousSessionIds ?? []), record.sessionId], sessionId: id };
+        save(record);
+      }
     }
     await launch(record);
     return { conversation: publicConversation(record) };
