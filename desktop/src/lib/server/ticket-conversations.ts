@@ -21,6 +21,7 @@ export interface TicketConversation {
   model: string;
   sessionId: string;
   previousSessionIds?: string[];
+  // Also preserves legacy chats whose starting prompt was handed to the user.
   promptPrefilled?: boolean;
   cwd: string;
   branch: string;
@@ -128,16 +129,22 @@ function claudeSessionExists(id: string) {
   catch { return false; }
 }
 async function launch(record: TicketConversation) {
+  if (record.provider === "codex" && !record.promptPrefilled) {
+    // The native app consumes the durable queue when it opens the thread.
+    // Persist before launching: a failed app launch must not queue a duplicate.
+    await exec(CLI.codex, ["queue", "--thread", record.sessionId, "--message", record.context], { cwd: record.cwd, timeout: 20000 });
+    record.promptPrefilled = true;
+    save(record);
+  }
   if (record.provider === "codex" && process.platform === "darwin") {
     const url = new URL(`codex://threads/${record.sessionId}`);
-    if (!record.promptPrefilled) url.searchParams.set("prompt", record.context);
     await exec("open", [url.toString()], { timeout: 15000 });
     record.promptPrefilled = true;
     save(record);
     return;
   }
   const args = record.provider === "claude"
-    ? [CLI.claude, ...(claudeSessionExists(record.sessionId) ? ["--resume", record.sessionId] : ["--session-id", record.sessionId]), "--append-system-prompt", record.context, ...(record.model ? ["--model", record.model] : []), ...record.checkouts.flatMap(c => ["--add-dir", c.path])]
+    ? [CLI.claude, ...(claudeSessionExists(record.sessionId) ? ["--resume", record.sessionId] : ["--session-id", record.sessionId]), "--append-system-prompt", record.context, ...(record.model ? ["--model", record.model] : []), ...record.checkouts.flatMap(c => ["--add-dir", c.path]), ...(!record.promptPrefilled && !claudeSessionExists(record.sessionId) ? ["--", record.context] : [])]
     : [CLI.codex, "resume", record.sessionId, "-C", record.cwd];
   if (process.platform === "darwin") {
     const command = `cd ${quote(record.cwd)} && ${["env", `PATH=${process.env.PATH || ""}`, ...args].map(quote).join(" ")}`;
@@ -167,6 +174,8 @@ async function launch(record: TicketConversation) {
     await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
     child.unref();
   } else throw httpError(409, "External conversations currently support macOS and Linux.");
+  record.promptPrefilled = true;
+  save(record);
 }
 
 export async function openTicketConversation(ticketId: string) {

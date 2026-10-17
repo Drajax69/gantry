@@ -201,8 +201,11 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   const id = initial.conversation.sessionId;
   expect(id).toMatch(/^[a-f0-9-]{36}$/);
   const codexLaunches = () => fs.readFileSync(launches,'utf8').trim().split('\n').map(l=>JSON.parse(l)).filter(c=>c.command==='open').map(c=>new URL(c.args[0]));
-  expect(codexLaunches().at(-1)!.searchParams.get('prompt')).toContain('Workspace delivery rule: implement Test the unified workspace, validate, then create a PR.');
-  expect(codexLaunches().at(-1)!.searchParams.get('prompt')).toContain('Updated ticket details persist after reload.');
+  const queued = () => fs.readFileSync(path.resolve('e2e/.tmp/home/codex-queued.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
+  expect(queued()).toHaveLength(1);
+  expect(queued()[0].args).toContain(id);
+  expect(queued()[0].args.at(-1)).toContain('Workspace delivery rule: implement Test the unified workspace, validate, then create a PR.');
+  expect(queued()[0].args.at(-1)).toContain('Updated ticket details persist after reload.');
   const protocol = fs.readFileSync(path.resolve('e2e/.tmp/home/codex-protocol.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
   expect(protocol.filter(c=>c.method==='thread/start')).toHaveLength(1);
   expect(protocol.some(c=>c.method==='turn/start')).toBe(false);
@@ -215,6 +218,7 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   for (const response of responses) expect((await response.json()).conversation.sessionId).toBe(id);
   expect(fs.readFileSync(launches,'utf8')).toContain(id);
   expect(codexLaunches().at(-1)!.searchParams.has('prompt')).toBe(false);
+  expect(queued()).toHaveLength(1);
   await page.reload();
   await page.getByRole('button',{name:'Edit ticket Test the unified workspace'}).click();
   await page.getByRole('button',{name:'Cancel',exact:true}).click();
@@ -227,12 +231,18 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   expect((await request.post('/api/ticket-chat',{headers:{Origin:'https://other.example'},data:{ticketId:'ticket-1',action:'open'}})).status()).toBe(403);
   expect((await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'send',text:'Do not run'}})).status()).toBe(400);
   fs.unlinkSync(path.resolve('e2e/.tmp/home', id+'.jsonl'));
+  fs.writeFileSync(path.resolve('e2e/.tmp/home/fail-external-launch'),'fixture');
+  expect((await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).ok()).toBe(false);
+  expect(queued()).toHaveLength(2);
+  fs.unlinkSync(path.resolve('e2e/.tmp/home/fail-external-launch'));
   const recovered = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
   expect(recovered.conversation.sessionId).not.toBe(id);
-  expect(codexLaunches().at(-1)!.searchParams.get('prompt')).toContain('Workspace delivery rule:');
+  expect(queued()).toHaveLength(2);
+  expect(queued().at(-1).args.at(-1)).toContain('Workspace delivery rule:');
   expect(fs.existsSync(path.resolve('e2e/.tmp/home', recovered.conversation.sessionId+'.jsonl'))).toBe(true);
   const again = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
   expect(again.conversation.sessionId).toBe(recovered.conversation.sessionId);
+  expect(queued()).toHaveLength(2);
   await request.patch('/api/agents',{data:{id:agents.current,current:true}});
 });
 

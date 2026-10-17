@@ -6,6 +6,10 @@ if (process.argv[2] === "--version") {
   console.log("codex-cli 0.0.0-fixture");
   process.exit(0);
 }
+if (process.argv[2] === "queue") {
+  fs.appendFileSync(path.join(process.env.PR_LENS_HOME, "codex-queued.jsonl"), JSON.stringify({args:process.argv.slice(2)}) + "\n");
+  process.exit(0);
+}
 if (process.argv[2] === "app-server") {
   const readline = require("node:readline");
   const threadsFile = path.join(process.env.PR_LENS_HOME, "codex-threads.json");
