@@ -1,16 +1,79 @@
+<div align="center">
+
 # Gantry
 
-Gantry is a local desktop workspace for taking a ticket from an idea to a pull request:
+### From “I should build that” to a pull request.
 
-**Ticket → worktrees → feature → draft PR → review**
+A local desktop workspace for your tickets, coding agents, branch previews, and code reviews.
 
-The Electron app combines a workspace switcher, a draggable ticket board, external coding-agent conversations, branch previews, and PR review. Each ticket opens in a large dialog with Details and Preview tabs. Related pull requests stay together in the ticket's review space.
+**One ticket. Its own worktrees. Its own conversation. Every related PR.**
 
-Configure your provider once in Settings. Ticket chat and PR review use the same provider and model: Claude Code, Codex CLI, or an OpenAI-compatible API such as OpenRouter or a local model server.
+[Get started](#get-started) · [How it works](#from-ticket-to-pull-request) · [Configure your workspace](docs/configuration.md) · [Contribute](CONTRIBUTING.md)
 
-## Start on macOS
+[![MIT license](https://img.shields.io/badge/license-MIT-a78bfa)](LICENSE)
+[![macOS desktop](https://img.shields.io/badge/desktop-macOS-38bdf8)](#get-started)
+[![Local workspace](https://img.shields.io/badge/workspace-local-34d399)](#your-workspace-on-your-machine)
 
-You need Node.js 22.12 or newer, npm, Git, and [GitHub CLI](https://cli.github.com/) logged in with `gh auth login`. For a CLI provider, install and log in to Claude Code or Codex. API providers are configured in the app.
+</div>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/ticket-board-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/ticket-board-light.png">
+  <img alt="Gantry's ticket board: colorful Backlog, In progress, and Done columns, with ticket chat, review, and preview actions and a workspace sidebar." src="docs/images/ticket-board-dark.png" width="1440">
+</picture>
+
+<p align="center"><sub>The real Gantry app, shown with demo tickets. Light and dark themes included.</sub></p>
+
+## Keep the whole feature in view
+
+Working with coding agents quickly turns into a coordination problem. Which chat belongs to this branch? Where is its preview? Did that change make it into the PR? What happens when one feature spans three repositories?
+
+Gantry keeps those pieces attached to the ticket. Move an idea into progress, work with your agent, try the running feature, and review the changes—all with the same workspace close at hand.
+
+| | What you get |
+| --- | --- |
+| **A board that starts the work** | Drag a new ticket into **In progress** to prepare its worktrees, open its coding conversation, and automatically send the starting prompt. |
+| **Your agent, with the context ready** | Use Codex in its app or Claude Code in Terminal. Ticket details, workspace instructions, and checkout paths go with the conversation. |
+| **A place for every PR in a feature** | Related PRs share a ticket review space, including work spread across multiple repositories. |
+| **The feature running beside the board** | Open Main and active ticket previews inside Gantry. Switch services without hunting for ports. |
+| **Debugging where you are testing** | Open the Debug panel for console output, network requests and responses, XHR filtering, and per-service logs. |
+| **A clear path from edits to GitHub** | Review published PR changes and local edits separately. Ask the review agent to make changes, inspect them, then commit and push from the app. |
+
+## From ticket to pull request
+
+**1. Describe the feature.**
+
+Create a ticket with a title and details. Give the workspace a reusable starting prompt: how to work in the codebase, what to validate, and what delivery should look like.
+
+**2. Drag it into progress.**
+
+Gantry prepares the ticket's Git worktrees and starts its external coding conversation with that context. A new chat's prompt is submitted automatically. Reopening the chat returns to the same conversation without resending it.
+
+**3. Build with your agent.**
+
+Keep using Codex or Claude Code directly. Ask it to implement the feature, run checks, and create a draft PR. Each ticket retains its chosen provider and conversation, even if you change the default later.
+
+**4. Try what changed.**
+
+With preview services configured, open the ticket's running app from the sidebar. Keep Main nearby for comparison. Inspect console messages, request bodies, responses, and service logs in the Debug panel.
+
+**5. Review and publish.**
+
+Gantry discovers PRs matching the ticket's branch and brings them into its review space. Review the diff, make further edits with the review agent, and use **Commit and push** when the local changes are ready.
+
+**6. Clear the board.**
+
+Move the ticket to Done. Its preview and review entries leave the active sidebar, while the ticket retains its history.
+
+> **Already have the branch and PRs?** Create a ticket using that exact branch name. Gantry's remote sync discovers the associated PRs so existing work can join the board too.
+
+## Get started
+
+The desktop app currently targets **macOS** and is built from source. You'll need:
+
+- **Node.js 22.12+**, npm, and Git.
+- **GitHub CLI**, authenticated with `gh auth login`, for the GitHub review workflow.
+- **Codex or Claude Code**, installed and signed in, to start ticket conversations.
 
 ```sh
 git clone https://github.com/Drajax69/gantry.git
@@ -20,63 +83,129 @@ npm run desktop:setup
 npm run desktop:start
 ```
 
-To build `Gantry.app`:
+Once Gantry opens:
+
+1. Pick your provider in **Settings**.
+2. Select **Add workspace** and choose a repository or a folder containing repositories.
+3. Set the **Workspace prompt** to describe how your agent should work.
+4. Create a ticket and drag it into **In progress**.
+
+Gantry discovers repositories and creates a local `gantry.yaml` if you don't have one. You can start with tickets and coding conversations, then add preview services when you're ready.
+
+<details>
+<summary><strong>Build a standalone Gantry.app</strong></summary>
 
 ```sh
 npm run desktop:build
 open desktop/dist/mac-arm64/Gantry.app
 ```
 
-Build output depends on your Mac architecture. The app is currently unsigned; this is a source-build release, not a signed installer. The runtime also runs on Linux, but desktop packaging is currently configured for macOS.
+The output directory depends on your Mac's architecture. Builds are currently unsigned; there is no signed installer. The runtime also runs on Linux, but desktop packaging is configured for macOS. Windows service supervision is not currently supported.
 
-## Use it
+</details>
 
-1. Choose a provider in **Settings**. This choice is shared throughout the app.
-2. **Add workspace** using a Git repository folder or a folder containing repositories. Gantry discovers repositories and writes a local `gantry.yaml` if none exists. Existing configuration is preserved.
-3. Create a ticket with a title, notes, and optional existing branch. Drag it between Backlog, In progress, and Done, or use the Stage control in Details.
-4. **Open chat** creates or reuses ticket worktrees and opens a persistent conversation in the Codex app or Claude Code in Terminal. Each ticket keeps its conversation and provider when your default changes. Gantry does not embed ticket chat.
-5. Ask the external agent to implement the feature, validate it, and create or update a draft PR. Gantry discovers PRs matching the ticket branch for integrated review. Opening chat does not start an agent turn or publish changes. API-only providers remain available for PR review; ticket conversations require Codex or Claude.
-6. Open **Review** to see the ticket's PRs together. **Back** returns to its ticket. Finished tickets retain their history but have no visible review spaces or previews.
+### Choose your coding workflow
 
-Existing PRs are associated by repository and exact branch name. Use that branch when creating a ticket for work already underway. Remote sync discovers PRs; its progress and errors appear in the workspace activity.
+Configure the default provider once in Settings. Ticket conversations remember their provider; PR review uses the shared provider configuration.
 
-Preview services are optional. Auto-created workspaces start with no services; add commands, environment-file paths, health URLs and dependencies to `gantry.yaml` using [the configuration guide](docs/configuration.md). Service processes and ports are separated per branch; databases are not automatically isolated.
+| Provider | Ticket conversations | In-app PR review chat |
+| --- | --- | --- |
+| **Codex** | Opens in the Codex app on macOS | Supported |
+| **Claude Code** | Opens in Terminal | Supported |
+| **OpenAI-compatible API** | Requires Codex or Claude instead | Supported, including OpenRouter and compatible local endpoints |
 
-## Personal data stays on your device
+Gantry manages the handoff to your external coding app. The review chat stays beside the diff so you can discuss and edit the code you are reviewing.
 
-This repository contains application source and synthetic test fixtures only. Tickets, conversations, API keys, repository checkouts, logs, previews, and workspace configuration are local artifacts, not source files to commit or upload here.
+## Your repositories. Your stack.
 
-- Runtime state: `~/Library/Application Support/gantry` on macOS, `$XDG_DATA_HOME/gantry` or `~/.local/share/gantry` on Linux (`GANTRY_DATA_DIR` overrides it).
-- Provider configuration, review spaces and chats: `~/.pr-lens` (`PR_LENS_HOME` overrides it). This legacy directory preserves data from the original review app integration.
-- Desktop profile: the existing `PR Lens` application-support directory for compatibility.
-- Ticket worktrees: the workspace's configured worktree directory.
+A workspace can contain one Git repository or several. A ticket can bring the matching worktrees and PRs together across them.
 
-Provider credentials are stored locally, not in this repo. They are currently stored in a permission-restricted JSON file, not the OS keychain. Chat requests send prompts and relevant code to the selected provider; local-only storage does not mean an external model never receives code. GitHub operations use your existing `gh` credentials.
+`gantry.yaml` describes your repositories and how to run your preview services. Use ordinary commands for your stack, or the managed Vite, Node, and Python runners. Configure service dependencies, health checks, environment-file paths, and ports in one place.
 
-## Agent access
+For example, a Vite frontend can depend on its backend and receive the backend's allocated port:
 
-External ticket conversations work in the prepared worktrees. PR review chat edits its local review checkout. Switch between **PR changes** (published on GitHub) and **Local changes** (unpublished edits and commits). Local changes refresh automatically. **Commit and push** lists all files, accepts a commit message, and publishes to the PR source branch without force-pushing. Failed pushes keep the commit for retry; refreshing preserves local work.
+```yaml
+# A service entry inside your workspace's gantry.yaml.
+# Assumes repositories.frontend and a service named backend are declared.
+services:
+  - id: frontend
+    repository: frontend
+    runtime: command
+    install: npm ci
+    start: npm run dev -- --host 127.0.0.1 --port ${port}
+    dependsOn: [backend]
+    env:
+      VITE_BACKEND_URL: http://127.0.0.1:${port.backend}
+    healthUrl: http://127.0.0.1:${port}/
+    openUrl: http://127.0.0.1:${port}/
+```
 
-Coding agents execute with your local credentials and should be used on repositories you trust. They are instructed to preserve unrelated changes and not publish until requested. API-provider command execution is not an OS sandbox. Never commit secrets to a ticket branch.
+Your frontend must read that environment variable. Gantry supplies the value; your application decides how to use it.
 
-## Development
+See the [complete example workspace](examples/minimal/gantry.yaml) and [configuration reference](docs/configuration.md) for all options. A configuration containing only shareable commands and paths can live in your own repository; keep credentials in private environment files.
 
-- `desktop/`: Electron + Next.js application, shared provider settings, chat, review UI.
-- `packages/server/`: local runtime, tickets, worktrees, previews and GitHub discovery.
-- `packages/shared/`: configuration and shared models.
-- `packages/cli/`: `gantry` CLI.
-- `packages/ui/`: standalone browser dashboard for runtime administration.
+## Your workspace, on your machine
+
+Gantry's board, workspace state, worktrees, and logs live locally. Connecting a workspace does not upload its tickets or configuration to this public repository.
+
+Your selected coding provider receives the prompts and code needed for its work, and GitHub operations use your existing `gh` authentication. Local storage does not make a cloud model local.
+
+A few practical boundaries:
+
+- Preview **processes and ports** are separated per branch. Databases are only separate if you configure separate databases.
+- Provider credentials are stored in permission-restricted local files, not the OS keychain.
+- Agents work with local tools and credentials. Use trusted repositories and review changes before publishing. API-provider command execution is not an OS sandbox.
+- **Commit and push** publishes to the PR's source branch without force-pushing. If a push fails, the local commit remains available for retry.
+
+<details>
+<summary><strong>Where Gantry stores its data</strong></summary>
+
+| Data | Location |
+| --- | --- |
+| Runtime state on macOS | `~/Library/Application Support/gantry` |
+| Runtime state on Linux | `$XDG_DATA_HOME/gantry` or `~/.local/share/gantry` |
+| Provider settings, review spaces, and conversation associations | `~/.pr-lens` |
+| Desktop profile | The `PR Lens` application-support directory |
+| Ticket worktrees | The worktree directory configured for your workspace |
+
+`GANTRY_DATA_DIR` and `PR_LENS_HOME` override the corresponding locations. The legacy `PR Lens` names preserve compatibility with earlier installations.
+
+</details>
+
+Read more about [security and execution boundaries](docs/security.md) or browse the [FAQ](docs/FAQ.md).
+
+## Build Gantry with us
+
+Gantry is **open source under the MIT license**. Try it on a real workflow, tell us where you lose context, or help make that handoff better.
+
+- [Report a bug or propose a feature](https://github.com/Drajax69/gantry/issues).
+- Read the [contributing guide](CONTRIBUTING.md) and [architecture overview](docs/architecture.md).
+- If Gantry fits the way you work, star the repository to help other developers find it.
+
+<details>
+<summary><strong>Development layout and checks</strong></summary>
+
+| Directory | Purpose |
+| --- | --- |
+| `desktop/` | Electron + Next.js app, ticket board, previews, provider settings, and PR review |
+| `packages/server/` | Local runtime, tickets, worktrees, service supervision, and GitHub discovery |
+| `packages/shared/` | Configuration schema and shared models |
+| `packages/cli/` | Gantry CLI |
+| `packages/ui/` | Standalone browser dashboard for runtime administration |
+
+After installing the root and desktop dependencies:
 
 ```sh
 npm run typecheck
 npm run lint
 npm test
 npm run build
-npm run desktop:setup
 npm run typecheck --prefix desktop
 npm run lint --prefix desktop
 npx --prefix desktop playwright install chromium
 npm run desktop:test
 ```
 
-Browser tests use fake providers and disposable Git repositories; they do not publish real PRs. See [CONTRIBUTING.md](CONTRIBUTING.md), [security](docs/security.md), and [configuration](docs/configuration.md).
+Browser tests use fake providers and disposable Git repositories. They do not publish real PRs.
+
+</details>
