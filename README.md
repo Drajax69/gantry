@@ -41,31 +41,33 @@ Gantry keeps those pieces attached to the ticket. Move an idea into progress, wo
 
 ## From ticket to pull request
 
-**1. Describe the feature.**
+```mermaid
+flowchart TD
+    ticket["1 · Describe the feature<br/>Ticket details + workspace prompt"]
+    start["2 · Drag into In progress<br/>Prepare worktrees · open chat · send prompt"]
+    build["3 · Build with your agent<br/>Codex or Claude Code · validate · create draft PR"]
+    preview["4 · Try what changed<br/>Branch preview + Main · console · network · logs"]
+    review["5 · Review and publish<br/>Linked PRs · local edits · commit and push"]
+    done["6 · Move to Done<br/>Clear active previews and reviews · keep ticket history"]
+    existing["Already have a branch and PRs?<br/>Create a ticket with the same branch name"]
 
-Create a ticket with a title and details. Give the workspace a reusable starting prompt: how to work in the codebase, what to validate, and what delivery should look like.
+    ticket --> start --> build --> preview --> review --> done
+    review -.->|Needs changes| build
+    existing -->|Remote sync links PRs| review
 
-**2. Drag it into progress.**
-
-Gantry prepares the ticket's Git worktrees and starts its external coding conversation with that context. A new chat's prompt is submitted automatically. Reopening the chat returns to the same conversation without resending it.
-
-**3. Build with your agent.**
-
-Keep using Codex or Claude Code directly. Ask it to implement the feature, run checks, and create a draft PR. Each ticket retains its chosen provider and conversation, even if you change the default later.
-
-**4. Try what changed.**
-
-With preview services configured, open the ticket's running app from the sidebar. Keep Main nearby for comparison. Inspect console messages, request bodies, responses, and service logs in the Debug panel.
-
-**5. Review and publish.**
-
-Gantry discovers PRs matching the ticket's branch and brings them into its review space. Review the diff, make further edits with the review agent, and use **Commit and push** when the local changes are ready.
-
-**6. Clear the board.**
-
-Move the ticket to Done. Its preview and review entries leave the active sidebar, while the ticket retains its history.
-
-> **Already have the branch and PRs?** Create a ticket using that exact branch name. Gantry's remote sync discovers the associated PRs so existing work can join the board too.
+    classDef idea fill:#ede9fe,stroke:#8b5cf6,color:#2e1065
+    classDef active fill:#cffafe,stroke:#06b6d4,color:#164e63
+    classDef code fill:#dbeafe,stroke:#3b82f6,color:#1e3a8a
+    classDef test fill:#fef3c7,stroke:#f59e0b,color:#78350f
+    classDef review fill:#fce7f3,stroke:#ec4899,color:#831843
+    classDef done fill:#d1fae5,stroke:#10b981,color:#064e3b
+    class ticket,existing idea
+    class start active
+    class build code
+    class preview test
+    class review review
+    class done done
+```
 
 ## Get started
 
