@@ -39,6 +39,7 @@ export function TicketConversation({ ticketId, done }: { ticketId: string; done:
       <div className="flex items-center gap-3"><AgentPicker align="start" /><span className="text-xs text-muted-foreground">Default for new conversations</span></div>
       <p className="text-sm text-muted-foreground">Open chat prepares this ticket’s worktrees and opens its conversation in your provider. Continue the feature and create its PR there; linked PRs appear in Review.</p>
     </>}
+    {!conversation && current?.kind === 'codex' && <p className="text-xs text-muted-foreground">New Codex chats start with Full Access, including filesystem and network access without approval prompts.</p>}
     {unsupported && <p className="text-sm text-muted-foreground">API providers have no external conversation launcher. Select Codex or Claude to work on this ticket.</p>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <Button disabled={loading || opening || unsupported || (done && !conversation)} onClick={async () => {
