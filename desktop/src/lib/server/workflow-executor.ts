@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from 'node:timers/promises';
+import { chatSnapshot, waitForChatHandover } from './workflow-chat-state';
 import 'server-only';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -6,7 +8,7 @@ import net from 'node:net';
 import { HOME, git, withLock } from './exec';
 import { drivers, findAgent, getAgent } from './agents';
 import { ticketContext } from './ticket-chat';
-import { conversationFor, openWorkflowConversation } from './ticket-conversations';
+import { conversationFor, openWorkflowConversation, readWorkflowConversation } from './ticket-conversations';
 import { nextNode, parseOutcome, finishAttempt, resetFrom, applyRoute, type Execution, type Attempt } from './workflow-state';
 import type { WorkflowRun } from '../../../../packages/shared/src/workflow';
 
@@ -88,14 +90,25 @@ export async function controlExecution(id: string, action: string, nodeId?: stri
     let run = engine.runs.get(id) ?? executionFor(id);
     if (action === 'open') {
       if (!run) throw new Error('Start the workflow first.');
-      if (engine.active.has(id)) throw new Error('Pause the workflow before opening its chat for manual work.');
-      if (run.state === 'running') {
-        run.state = 'paused';
-        run.message = 'Paused for manual work in the stage chat.';
-        save(run);
-      }
       const attempt = [...run.attempts].reverse().find((a) => a.nodeId === nodeId && a.sessionId);
       if (!attempt) throw new Error('This stage has no external chat yet.');
+      if (attempt.providerKind === 'codex' && process.platform === 'darwin') {
+        // A native deep link observes the existing session; it does not resume a CLI.
+        if (attempt.state !== 'running' && !attempt.chatOpened) {
+          const cwd = work.checkouts[0]?.path;
+          if (!cwd) throw new Error('No prepared checkout.');
+          attempt.chatVersion = chatSnapshot(await readWorkflowConversation(cwd, attempt.sessionId!)).version;
+        }
+        attempt.chatOpened = true;
+        save(run);
+      } else {
+        if (engine.active.has(id)) throw new Error('Pause before opening an interactive terminal chat.');
+        if (run.state === 'running') {
+          run.state = 'paused';
+          run.message = 'Paused for manual work in the stage chat.';
+          save(run);
+        }
+      }
       return openWorkflowConversation(work, attempt);
     }
     if (['confirm', 'retry'].includes(action) && work.ticket.status !== 'in_progress') throw new Error('Move this ticket into In progress first.');
@@ -247,6 +260,13 @@ async function routeHandover(run: Execution, cwd: string, signal: AbortSignal) {
   applyRoute(run, output);
   save(run);
 }
+async function verifyEarlierChats(run: Execution, cwd: string, nodeId: string) {
+  for (const prior of run.attempts.filter((a) => a.chatOpened && a.chatVersion && a.sessionId)) {
+    const current = chatSnapshot(await readWorkflowConversation(cwd, prior.sessionId!));
+    if (current.active || (current.version !== prior.chatVersion && prior.nodeId !== nodeId))
+      throw new Error('An earlier stage chat changed after its handover. Finish that conversation, then retry from that stage to include your changes.');
+  }
+}
 async function runStage(run: Execution, node: Execution['graph']['nodes'][number], controller: AbortController) {
   let attempt: Attempt | undefined;
   let timeout: NodeJS.Timeout | undefined;
@@ -256,6 +276,7 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
     if (controller.signal.aborted) throw new Error('Paused.');
     const cwd = work.checkouts[0]?.path;
     if (!cwd) throw new Error('No prepared checkout.');
+    await verifyEarlierChats(run, cwd, node.id);
     if (run.routing) {
       await routeHandover(run, cwd, controller.signal);
       return;
@@ -279,8 +300,10 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
       providerKind: agent.kind,
       model: agent.model,
       commits: await heads(work.checkouts),
+      chatOpened: prior?.chatOpened,
       ...(sessionId ? { sessionId } : {}),
     };
+    if (prior) prior.chatOpened = false;
     const coordinatorNote = run.message;
     run.attempts.push(attempt);
     run.steps[node.id] = 'running';
@@ -336,6 +359,18 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
     });
     if (controller.signal.aborted) throw new Error(run.state === 'paused' ? 'Paused by you.' : 'Stage exceeded its 30 minute limit.');
     if (failure) throw new Error(failure);
+    if (attempt.chatOpened && attempt.sessionId) {
+      run.message = `${node.label}: checking the live chat before handover.`;
+      save(run);
+      const snapshot = await waitForChatHandover(
+        () => readWorkflowConversation(cwd, attempt!.sessionId!),
+        controller.signal,
+        () => sleep(2000, undefined, { signal: controller.signal }),
+      );
+      attempt.output = snapshot.output;
+      attempt.chatVersion = snapshot.version;
+    }
+    await verifyEarlierChats(run, cwd, node.id);
     const result = parseOutcome(attempt.output);
     attempt.commits = await heads(work.checkouts);
     if (controller.signal.aborted) throw new Error('Stopped before stage handover.');
