@@ -7,7 +7,10 @@ test('large ticket graph fits the dialog and keeps stage controls accessible', a
   await page.goto('/');
   await page.locator('article').filter({ hasText: 'Large graph layout' }).getByRole('button').first().click();
   const dialog = page.getByRole('dialog');
-  expect((await dialog.boundingBox())!.width).toBeGreaterThan(1300);
+  const wideBounds = (await dialog.boundingBox())!;
+  expect(wideBounds.width).toBe(1408);
+  expect(wideBounds.height).toBeCloseTo(810, 0);
+  expect(wideBounds.y).toBeCloseTo(45, 0);
   const viewport = page.getByLabel('Workflow graph', { exact: true });
   await expect.poll(() => viewport.evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
   await page.getByLabel('Selected workflow stage').selectOption('step-6');
@@ -21,9 +24,16 @@ test('large ticket graph fits the dialog and keeps stage controls accessible', a
   await expect.poll(() => viewport.evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
   await page.screenshot({ path: 'e2e/.tmp/ticket-graph-wide.png' });
   await page.setViewportSize({ width: 780, height: 780 });
+  await expect.poll(async () => (await dialog.boundingBox())!.height).toBeCloseTo(702, 0);
   await expect.poll(() => viewport.evaluate(e => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
   await page.screenshot({ path: 'e2e/.tmp/ticket-graph-compact.png' });
   expect(await dialog.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 600 });
+  await expect.poll(async () => (await dialog.boundingBox())!.height).toBeCloseTo(540, 0);
+  await page.getByLabel('Selected workflow stage').selectOption('step-0');
+  await expect(page.getByRole('heading', { name: 'Plan', exact: true })).toBeInViewport();
+  await expect(page.getByRole('button', { name: 'Close details', exact: true })).toBeInViewport();
+  await page.screenshot({ path: 'e2e/.tmp/ticket-graph-short.png' });
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
 });
