@@ -29,3 +29,41 @@ test('a repository without a remote snapshot prevents partial ticket completion'
   expect(updates[0][1]).toBe(0);
   expect(branches.size).toBe(0);
 });
+
+test('merge reconciliation waits for an active sync and then fetches fresh evidence', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const completed = vi.fn().mockResolvedValue(undefined);
+  const sync = new RemoteSync({} as Database, async () => [{} as LoadedProject], { warn: vi.fn() } as unknown as Logger, completed);
+  const pass = vi.spyOn(sync as unknown as { syncProject: () => Promise<void> }, 'syncProject')
+    .mockImplementationOnce(() => gate).mockResolvedValue(undefined);
+  const initial = sync.sync();
+  await vi.waitFor(() => expect(pass).toHaveBeenCalledTimes(1));
+  let reconciled = false;
+  const merge = sync.sync(true).then(() => { reconciled = true; });
+  await Promise.resolve();
+  expect(reconciled).toBe(false);
+  release();
+  await Promise.all([initial, merge]);
+  expect(pass).toHaveBeenCalledTimes(2);
+  expect(completed).toHaveBeenCalledTimes(2);
+});
+
+test.each([null, 'TEST_d193df13 sync failed'])('reconciliation responds only after fresh synchronization: %s', async error => {
+  const { createHttpServer } = await import('../packages/server/src/http/server.js');
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const sync = vi.fn(() => gate);
+  const app = { ctx: { settings: { port: 4500, host: '127.0.0.1' } }, remote: { sync, lastError: error, lastSyncAt: 123 } };
+  const server = await createHttpServer(app as unknown as import('../packages/server/src/app.js').GantryApp);
+  try {
+    let responded = false;
+    const response = server.inject({ method: 'POST', url: '/api/pulls/reconcile', headers: { host: '127.0.0.1:4500' }, payload: {} }).then(result => { responded = true; return result; });
+    await vi.waitFor(() => expect(sync).toHaveBeenCalledWith(true));
+    expect(responded).toBe(false);
+    release();
+    const result = await response;
+    expect(result.statusCode).toBe(error ? 400 : 200);
+    expect(result.json()).toEqual(error ? { error } : { ok: true, checkedAt: 123 });
+  } finally { release(); await server.close(); }
+});

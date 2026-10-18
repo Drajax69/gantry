@@ -58,8 +58,9 @@ export async function createHttpServer(app: GantryApp) {
 
   // Request authoritative merge reconciliation; callers cannot mark tickets done.
   fastify.post('/api/pulls/reconcile', async () => {
-    const job = app.jobs.enqueue('remote-sync', { dedupeKey: 'remote-sync' });
-    return { ok: true, jobId: job.id };
+    await app.remote.sync(true);
+    if (app.remote.lastError) throw new Error(app.remote.lastError);
+    return { ok: true, checkedAt: app.remote.lastSyncAt };
   });
 
   // ---- projects ------------------------------------------------------------

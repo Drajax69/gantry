@@ -398,6 +398,7 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
       {merging && <MergeDialog id={id} head={t.headSha} title={t.title} onClose={() => setMerging(false)} onMerged={(warning) => {
         setMerging(false);
         setData(current => current ? { ...current, target: { ...current.target, prState: "merged" } } : current);
+        window.dispatchEvent(new Event("gantry:merge-completed"));
         if (warning) toast.warning(warning); else toast.success("PR merged. Gantry will move the ticket to Done once all its changes are merged.");
         void refresh();
       }} />}

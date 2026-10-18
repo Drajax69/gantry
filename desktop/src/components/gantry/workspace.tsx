@@ -53,14 +53,19 @@ export function GantryWorkspace() {
   const [log, setLog] = useState<{ title: string; text: string } | null>(null);
   const loading = useRef(false);
   const mounted = useRef(true);
+  const refreshPending = useRef(false);
   const refresh = useCallback(async () => {
-    if (loading.current) return;
+    if (loading.current) { refreshPending.current = true; return; }
     loading.current = true;
     try {
-      const next = await gantry.status();
-      if (mounted.current) { setData(next); setError(null); }
-    } catch (e) { if (mounted.current) setError((e as Error).message); }
-    finally { loading.current = false; }
+      do {
+        refreshPending.current = false;
+        try {
+          const next = await gantry.status();
+          if (mounted.current) { setData(next); setError(null); }
+        } catch (e) { if (mounted.current) setError((e as Error).message); }
+      } while (refreshPending.current && mounted.current);
+    } finally { loading.current = false; }
   }, []);
   useEffect(() => {
     mounted.current = true;
@@ -71,8 +76,10 @@ export function GantryWorkspace() {
       if (params.get("review")) { setReviewSpace(params.get("review")); setArea("reviews"); }
       void refresh();
     });
+    const onMerge = () => { void refresh(); };
+    window.addEventListener("gantry:merge-completed", onMerge);
     const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 10000);
-    return () => { mounted.current = false; clearInterval(timer); };
+    return () => { mounted.current = false; clearInterval(timer); window.removeEventListener("gantry:merge-completed", onMerge); };
   }, [refresh]);
   const project = data?.projects.find((p) => p.id === projectId) ?? data?.projects[0];
   const tickets = data?.tickets.filter((t) => t.projectId === project?.id) ?? [];
