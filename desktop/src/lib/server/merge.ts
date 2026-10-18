@@ -32,7 +32,7 @@ export async function mergePull(id: string, head: string, method: string) {
       if (upstream.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(upstream.hostname) || upstream.username || upstream.password) throw new Error("Invalid Gantry URL");
       const response = await fetch(new URL("/api/pulls/reconcile", upstream), {
         method: "POST", headers: { "Content-Type": "application/json", Origin: upstream.origin }, body: "{}",
-        redirect: "error", signal: AbortSignal.timeout(10000),
+        redirect: "error", signal: AbortSignal.timeout(60000),
       });
       if (!response.ok) throw new Error("Reconciliation unavailable");
     } catch {

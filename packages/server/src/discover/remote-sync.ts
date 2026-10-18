@@ -7,8 +7,8 @@ import { mergedEvidence, matchPull, shouldRetire } from './merge-evidence.js';
 import { isGitRepository } from '../git/git.js';
 
 /**
- * Slow-path remote synchronization (default: every 2 minutes, and only ever
- * from the scheduler — never from the ticket-start path):
+ * Remote synchronization (every 2 minutes and explicitly after a PR merge;
+ * never from the ticket-start path):
  *
  *  1. refresh each repository's remote default-branch view over Git
  *  2. if the GitHub CLI is authenticated, refresh exact open-PR state
@@ -32,7 +32,7 @@ export class RemoteSync {
   private readonly snapshots = new Map<string, RemoteSnapshot>();
   private readonly openPulls = new Map<string, OpenPull[]>();
   private githubCli: boolean | null = null;
-  private running = false;
+  private running: Promise<void> | null = null;
   lastSyncAt = 0;
   lastError: string | null = null;
 
@@ -61,9 +61,19 @@ export class RemoteSync {
     return [...groups.entries()].map(([branch, pulls]) => ({ branch, pulls }));
   }
 
-  async sync(): Promise<void> {
-    if (this.running) return;
-    this.running = true;
+  async sync(fresh = false): Promise<void> {
+    if (this.running) {
+      await this.running;
+      if (!fresh) return;
+      // A merge may have happened after the active pass fetched GitHub state.
+      return this.sync(true);
+    }
+    this.running = this.runSync();
+    try { await this.running; }
+    finally { this.running = null; }
+  }
+
+  private async runSync(): Promise<void> {
     try {
       const completedBranches = new Map<string, Set<string>>();
       if (this.githubCli === null) this.githubCli = await githubCliAvailable();
@@ -76,8 +86,6 @@ export class RemoteSync {
     } catch (error) {
       this.lastError = (error as Error).message;
       this.log.warn(`remote sync failed: ${this.lastError}`);
-    } finally {
-      this.running = false;
     }
   }
 
