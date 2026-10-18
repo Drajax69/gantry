@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUpRightIcon, GitBranchIcon, GitPullRequestIcon, LayoutListIcon, Loader2Icon, MonitorIcon, PlusIcon, RefreshCwIcon, MessageSquareIcon, CircleDashedIcon, CircleDotIcon, CircleCheckIcon, Trash2Icon } from "lucide-react";
+import { ArrowUpRightIcon, GitBranchIcon, GitPullRequestIcon, LayoutListIcon, NetworkIcon, Loader2Icon, MonitorIcon, PlusIcon, RefreshCwIcon, MessageSquareIcon, CircleDashedIcon, CircleDotIcon, CircleCheckIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/client/api";
 import { gantry, type ProjectView, type StatusView, type TicketView } from "@/lib/client/gantry";
 
+import { TicketGraph } from "./ticket-graph";
 import { useTicketColors } from "./ticket-colors";
 import { Workspace as ReviewWorkspace } from "@/components/space/workspace";
 import { PreviewPane } from "./preview-pane";
@@ -35,6 +36,7 @@ export function GantryWorkspace() {
   const [data, setData] = useState<StatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [projectId, setProjectId] = useState("");
+  const [ticketView, setTicketView] = useState<"board" | "graph">("board");
   const [area, setArea] = useState<Area>("tickets");
   const [selected, setSelected] = useState<string | null>(null);
   const [ticketTab, setTicketTab] = useState<"details" | "preview">("details");
@@ -73,14 +75,21 @@ export function GantryWorkspace() {
       const params = new URLSearchParams(window.location.search);
       setProjectId(params.get("workspace") || localStorage.getItem("gantry-workspace") || "");
       setSelected(params.get("ticket"));
+      setTicketView(localStorage.getItem("gantry-ticket-view") === "graph" ? "graph" : "board");
       if (params.get("review")) { setReviewSpace(params.get("review")); setArea("reviews"); }
       void refresh();
     });
     const onMerge = () => { void refresh(); };
     window.addEventListener("gantry:merge-completed", onMerge);
-    const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 10000);
-    return () => { mounted.current = false; clearInterval(timer); window.removeEventListener("gantry:merge-completed", onMerge); };
+    return () => { mounted.current = false; window.removeEventListener("gantry:merge-completed", onMerge); };
   }, [refresh]);
+  useEffect(() => {
+    const update = () => { if (!document.hidden) void refresh(); };
+    const timer = setInterval(update, area === "tickets" && ticketView === "graph" ? 2000 : 10000);
+    window.addEventListener("focus", update);
+    document.addEventListener("visibilitychange", update);
+    return () => { clearInterval(timer); window.removeEventListener("focus", update); document.removeEventListener("visibilitychange", update); };
+  }, [area, ticketView, refresh]);
   const project = data?.projects.find((p) => p.id === projectId) ?? data?.projects[0];
   const tickets = data?.tickets.filter((t) => t.projectId === project?.id) ?? [];
   const ticketColor = useTicketColors(project?.id ?? "", tickets);
@@ -161,6 +170,17 @@ export function GantryWorkspace() {
   const navigateReview = useCallback((id: string | null) => { setReviewSpace(id); setArea(current => id ? "reviews" : current === "reviews" ? "tickets" : current); }, []);
   const changeArea = (next: Area) => { setArea(next); setLog(null); setCreating(false); };
 
+  const ticketCards = new Map(tickets.map(t => [t.id, <article key={t.id} style={ticketColor(t.id)} data-ticket-id={t.id} data-done={t.status === "done" || undefined} draggable={ticketView === "board" && !busy && !movingTickets.has(t.id)} onDragStart={e => { e.dataTransfer.setData("application/x-gantry-ticket", t.id); e.dataTransfer.effectAllowed = "move"; setDragging(t.id); }} onDragEnd={() => { setDragging(null); setDropColumn(null); }} className={cn("gantry-ticket rounded-lg border", selected === t.id && "gantry-ticket-selected", dragging === t.id && "opacity-50")}>
+                  <button onClick={() => openTicket(t.id)} className="flex w-full flex-col gap-3 p-3 text-left focus-visible:outline-2 focus-visible:outline-ring" aria-pressed={selected === t.id}>
+                    <span className="flex items-start gap-2 break-words text-sm font-semibold"><span aria-hidden="true" className="gantry-ticket-dot mt-1 size-2 shrink-0 rounded-full" />{t.title}</span>
+                    <span className="flex max-w-full items-center gap-1.5 text-xs text-muted-foreground"><GitBranchIcon className="size-3 shrink-0" /><span className="truncate font-mono">{t.branch}</span></span>
+                    {t.workflow && <span className={cn("text-xs", graphSummary(t.workflow)?.waiting ? "font-semibold text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>{graphSummary(t.workflow)?.text}</span>}
+                    {t.conversation && <span className="text-xs text-muted-foreground">Chat linked · {t.conversation.providerName}</span>}
+                    {t.run && <span className="text-xs text-muted-foreground">{t.run.agent} · {t.run.state}</span>}
+                  </button>
+                  <div className="gantry-ticket-actions flex flex-wrap gap-1 border-t px-2 py-1"><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, false, true)} aria-label={`Edit ticket ${t.title}`}>Edit</Button>{t.status === "in_progress" && <><Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => openTicketChat(t.id))} aria-label={`Open chat for ${t.title}`}><MessageSquareIcon />Open chat</Button><Button size="sm" variant="ghost" disabled={busy || !t.reviewSpaceId} onClick={() => void review([], t)} aria-label={`Open review space for ${t.title}`}><GitPullRequestIcon />Review<ArrowUpRightIcon /></Button><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, true)} aria-label={`Preview ${t.title}`}><MonitorIcon />Preview</Button></>}<Button size="sm" variant="ghost" className="ml-auto" disabled={busy || !!(t.run && ["starting", "running", "interrupting"].includes(t.run.state))} onClick={() => setDeleting(t)} aria-label={`Delete ticket ${t.title}`}><Trash2Icon />Delete</Button></div>
+                </article>]));
+
   return <div className="gantry-workspace flex h-full min-h-0 flex-col bg-background">
     {promptOpen && project && <WorkspaceGraphDialog project={project} onClose={() => setPromptOpen(false)} />}
     {deleting && <DeleteTicketDialog title={deleting.title} busy={busy} onCancel={() => setDeleting(null)} onDelete={() => void act(() => gantry.deleteTicket(deleting.id), "Ticket deleted").then(ok => { if (ok) { if (selected === deleting.id) closeTicket(); setDeleting(null); } })} />}
@@ -192,6 +212,9 @@ export function GantryWorkspace() {
         {area !== "previews" && !(area === "reviews" && reviewSpace) && <div className="flex flex-wrap items-center gap-3 border-b px-6 py-5">
           <div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">{area === "tickets" ? "Tickets" : "Ready for review"}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{area === "tickets" ? "Create a worktree, build the feature, and open a pull request." : "Review related pull requests together."}</p></div>
+          {area === "tickets" && <div role="group" aria-label="Ticket view" className="flex rounded-lg border p-1">
+            {(["board", "graph"] as const).map(view => <Button key={view} size="sm" variant={ticketView === view ? "secondary" : "ghost"} aria-pressed={ticketView === view} onClick={() => { setTicketView(view); localStorage.setItem("gantry-ticket-view", view); }}>{view === "board" ? <LayoutListIcon /> : <NetworkIcon />}{view === "board" ? "Board" : "Graph"}</Button>)}
+          </div>}
           <Button variant="outline" disabled={busy} onClick={() => void refresh()} aria-label="Refresh Gantry"><RefreshCwIcon /></Button>
           {area === "tickets" && project && <Button disabled={busy} onClick={() => { setCreating(true); setSelected(null); setLog(null); setTicketTab("details"); }}><PlusIcon /> New ticket</Button>}
           {area === "reviews" && project && <Button variant="outline" disabled={busy} onClick={() => void act(() => gantry.refreshProject(project.id), "Remote sync queued")}><RefreshCwIcon /> Sync remote</Button>}
@@ -216,25 +239,17 @@ export function GantryWorkspace() {
           </div>;
         })}
         {project && area === "tickets" && <div className="min-h-0 flex-1">
-          <section className="grid grid-cols-1 divide-y md:grid-cols-3 md:divide-x md:divide-y-0" aria-label="Ticket board">
+          {ticketView === "graph" ? <TicketGraph tickets={tickets} cards={ticketCards} connected={!error} /> : <section className="grid grid-cols-1 divide-y md:grid-cols-3 md:divide-x md:divide-y-0" aria-label="Ticket board">
             {["backlog", "in_progress", "done"].map(status => {
               const column = tickets.filter(t => t.status === status).sort((a,b) => (a.position ?? 0) - (b.position ?? 0));
               return <section key={status} className={cn("gantry-column min-h-64 min-w-0 p-4 transition-colors", dropColumn === status && "bg-muted")} aria-label={labels[status]} onDragOver={e => { if (dragging && !busy) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropColumn(status); } }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropColumn(null); }} onDrop={e => { e.preventDefault(); if (!busy) void moveTicket(e.dataTransfer.getData("application/x-gantry-ticket"), status); }}>
                 <h2 className={cn("mb-4 flex items-center gap-2 text-sm font-medium", status === "backlog" ? "text-violet-700 dark:text-violet-300" : status === "in_progress" ? "text-sky-700 dark:text-sky-300" : "text-emerald-700 dark:text-emerald-300")}>
                   {status === "backlog" ? <CircleDashedIcon className="size-4" /> : status === "in_progress" ? <CircleDotIcon className="size-4" /> : <CircleCheckIcon className="size-4" />}{labels[status]}<span className="ml-auto rounded-md bg-current/10 px-2 py-0.5 text-xs tabular-nums">{column.length}</span></h2>
-                <div className="space-y-3">{column.map(t => <article key={t.id} style={ticketColor(t.id)} data-ticket-id={t.id} data-done={t.status === "done" || undefined} draggable={!busy && !movingTickets.has(t.id)} onDragStart={e => { e.dataTransfer.setData("application/x-gantry-ticket", t.id); e.dataTransfer.effectAllowed = "move"; setDragging(t.id); }} onDragEnd={() => { setDragging(null); setDropColumn(null); }} className={cn("gantry-ticket rounded-lg border", selected === t.id && "gantry-ticket-selected", dragging === t.id && "opacity-50")}>
-                  <button onClick={() => openTicket(t.id)} className="flex w-full flex-col gap-3 p-3 text-left focus-visible:outline-2 focus-visible:outline-ring" aria-pressed={selected === t.id}>
-                    <span className="flex items-start gap-2 break-words text-sm font-semibold"><span aria-hidden="true" className="gantry-ticket-dot mt-1 size-2 shrink-0 rounded-full" />{t.title}</span>
-                    <span className="flex max-w-full items-center gap-1.5 text-xs text-muted-foreground"><GitBranchIcon className="size-3 shrink-0" /><span className="truncate font-mono">{t.branch}</span></span>
-                    {t.workflow && <span className={cn("text-xs", graphSummary(t.workflow)?.waiting ? "font-semibold text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>{graphSummary(t.workflow)?.text}</span>}
-                    {t.run && <span className="text-xs text-muted-foreground">{t.run.agent} · {t.run.state}</span>}
-                  </button>
-                  <div className="gantry-ticket-actions flex flex-wrap gap-1 border-t px-2 py-1"><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, false, true)} aria-label={`Edit ticket ${t.title}`}>Edit</Button>{t.status === "in_progress" && <><Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => openTicketChat(t.id))} aria-label={`Open chat for ${t.title}`}><MessageSquareIcon />Open chat</Button><Button size="sm" variant="ghost" disabled={busy || !t.reviewSpaceId} onClick={() => void review([], t)} aria-label={`Open review space for ${t.title}`}><GitPullRequestIcon />Review<ArrowUpRightIcon /></Button><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, true)} aria-label={`Preview ${t.title}`}><MonitorIcon />Preview</Button></>}<Button size="sm" variant="ghost" className="ml-auto" disabled={busy || !!(t.run && ["starting", "running", "interrupting"].includes(t.run.state))} onClick={() => setDeleting(t)} aria-label={`Delete ticket ${t.title}`}><Trash2Icon />Delete</Button></div>
-                </article>)}</div>
+                <div className="space-y-3">{column.map(t => ticketCards.get(t.id))}</div>
                 {!column.length && <p className="py-6 text-xs text-muted-foreground">{status === "backlog" ? "New tickets start here." : status === "in_progress" ? "Active work appears here." : "Completed tickets appear here."}</p>}
               </section>;
             })}
-          </section>
+          </section>}
           {(creating || ticket) && <TicketDialog color={ticket ? ticketColor(ticket.id) : undefined} title={creating ? "New ticket" : ticket!.title} onClose={closeTicket}>
             {ticket && <div className="flex shrink-0 gap-1 border-b px-6 py-2" role="tablist" aria-label="Ticket sections">{(["details", ...(ticket.status === "in_progress" ? ["preview"] : [])] as ("details" | "preview")[]).map(tab => <Button key={tab} role="tab" aria-selected={ticketTab === tab} variant={ticketTab === tab ? "secondary" : "ghost"} onClick={() => { setTicketTab(tab); setLog(null); }}>{tab === "details" ? "Details" : "Preview"}</Button>)}</div>}
             <div className="min-h-0 flex-1 overflow-y-auto p-6">

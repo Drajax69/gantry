@@ -1,3 +1,4 @@
+import { conversationFor, publicConversation } from "@/lib/server/ticket-conversations";
 import { syncGantrySpaces } from "@/lib/server/spaces";
 import type { StatusView } from "@/lib/client/gantry";
 
@@ -61,7 +62,7 @@ async function proxy(req: Request, context: Context) {
     if (route === "api/status" && response.ok) {
       const status = await response.json() as StatusView;
       const spaces = syncGantrySpaces(status);
-      responseBody = JSON.stringify({ ...status, tickets: status.tickets.map(t => ({ ...t, reviewSpaceId: spaces[t.id] })) });
+      responseBody = JSON.stringify({ ...status, tickets: status.tickets.map(t => ({ ...t, reviewSpaceId: spaces[t.id], conversation: publicConversation(conversationFor(t.id)) })) });
     }
     return new Response(responseBody, {
       status: response.status,

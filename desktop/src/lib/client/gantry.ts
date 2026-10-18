@@ -34,6 +34,7 @@ export interface TicketRunView {
 }
 
 export interface TicketView {
+  conversation?: { provider: "codex" | "claude"; providerName: string; sessionId: string } | null;
   reviewSpaceId?: string;
   workflow?: WorkflowRun | null;
   id: string;
