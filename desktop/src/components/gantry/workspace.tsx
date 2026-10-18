@@ -1,5 +1,6 @@
 "use client";
 
+import { ticketServiceScopes } from "@/lib/client/gantry";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { ArrowUpRightIcon, GitBranchIcon, GitPullRequestIcon, LayoutListIcon, NetworkIcon, Loader2Icon, MonitorIcon, PlusIcon, RefreshCwIcon, MessageSquareIcon, CircleDashedIcon, CircleDotIcon, CircleCheckIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
@@ -296,18 +297,39 @@ export function GantryWorkspace() {
   </div>;
 }
 
-type TicketInput = { title: string; description: string; scope: string; branch?: string };
+type TicketInput = { title: string; description: string; scopes?: string[]; branch?: string };
 function TicketForm({ project, ticket, busy, onSave, onCancel }: { project: ProjectView; ticket?: TicketView; busy: boolean; onSave: (input: TicketInput) => Promise<void>; onCancel: () => void }) {
   const [title, setTitle] = useState(ticket?.title ?? "");
   const [branch, setBranch] = useState(ticket?.branch ?? "");
   const [description, setDescription] = useState(ticket?.description ?? "");
-  const [scope, setScope] = useState(ticket?.scope ?? project.scopes[0]?.id ?? "both");
-  return <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); void onSave({ title: title.trim(), description, scope, ...(branch.trim() ? { branch: branch.trim() } : {}) }); }}>
+  const [scopes, setScopes] = useState(() => ticketServiceScopes(ticket ?? {}, project.services));
+  const [scopesTouched, setScopesTouched] = useState(false);
+  const scopeIds = [...new Set([...project.services.map((service) => service.id), ...(ticket?.scopes ?? [])])];
+  const originalScopes = ticket ? ticketServiceScopes(ticket, project.services) : [];
+  const scopeChanged = !ticket || scopesTouched || scopes.length !== originalScopes.length || scopes.some((id) => !originalScopes.includes(id));
+  return <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); void onSave({ title: title.trim(), description, ...(scopeChanged ? { scopes } : {}), ...(branch.trim() ? { branch: branch.trim() } : {}) }); }}>
     <h2 className="text-lg font-semibold">{ticket ? "Edit ticket" : "New ticket"}</h2>
     <label className="block space-y-2 text-sm">Title<Input autoFocus required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What needs to change?" /></label>
     <label className="block space-y-2 text-sm">Branch<Input aria-label="Branch" value={branch} onChange={e => setBranch(e.target.value)} placeholder="Generated from title if empty" /></label>
     <label className="block space-y-2 text-sm">Notes<Textarea aria-label="Notes" className="min-h-32" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Context, expected behavior, and acceptance criteria" /></label>
-    <label className="flex items-center gap-3 text-sm">Scope<select className={selectClass} value={scope} onChange={(e) => setScope(e.target.value)}>{project.scopes.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
+    <fieldset className="space-y-2" disabled={busy}>
+      <legend className="mb-2 text-sm font-medium">Scope</legend>
+      <p className="text-xs text-muted-foreground">Select the services this ticket affects. Leave empty for workspace-wide work.</p>
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
+        {scopeIds.map((id) => (
+          <label key={id} className="flex min-h-9 min-w-0 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={scopes.includes(id)}
+              onChange={(event) => { setScopesTouched(true); setScopes((selected) => event.target.checked ? [...selected, id] : selected.filter((value) => value !== id)); }}
+            />
+            <span className="break-all">{id}{!project.services.some((service) => service.id === id) && " (unavailable)"}</span>
+          </label>
+        ))}
+      </div>
+      {!project.services.length && <p className="text-xs text-muted-foreground">No services configured in gantry.yaml.</p>}
+      {ticket && ticket.scopeDescription?.startsWith("Legacy scope:") && <p className="text-xs text-muted-foreground">Legacy scope: {ticket.scope}. Select services to replace it.</p>}
+    </fieldset>
     <div className="flex gap-2"><Button type="submit" disabled={busy || !title.trim()}>{busy && <Loader2Icon className="animate-spin" />}{ticket ? "Save changes" : "Create ticket"}</Button><Button variant="ghost" disabled={busy} onClick={onCancel}>Cancel</Button></div>
   </form>;
 }
@@ -320,6 +342,7 @@ function TicketDetail({ ticket: t, pullGroups, project, busy, act, onReview, onL
   return <div className="space-y-6">
     <TicketWorkflow key={t.id} ticket={t} refresh={() => act(async () => {})} />
     <div className="space-y-3"><div className="flex items-start gap-3"><h2 className="min-w-0 flex-1 break-words text-lg font-semibold">{t.title}</h2><Button variant="ghost" size="sm" disabled={busy} onClick={() => { setEditing(true); }}>Edit</Button></div><p className="break-all font-mono text-xs text-muted-foreground">{t.branch}</p>
+      <p className="break-words text-xs text-muted-foreground">Scope: {t.scopeDescription ?? (ticketServiceScopes(t, project.services).join(", ") || "Workspace-wide")}</p>
       <TicketPullRequests ticket={t} groups={pullGroups} />
       <label className="flex items-center gap-3 text-sm">Stage<select className={selectClass} value={t.status} disabled={busy} onChange={(e) => void onStage(e.target.value)}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{t.description || "No notes added."}</p>

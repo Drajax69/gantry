@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Ticket scopes now select one or more services from `gantry.yaml` using checkboxes in desktop and standalone dashboards, with persisted selections and service-based agent prompts. Older tickets and YAML remain readable.
+
 ### Added
 
 - Show cached pull request status icons on desktop ticket cards, graph nodes and ticket details.

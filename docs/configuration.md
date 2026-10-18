@@ -22,20 +22,15 @@ Validation collects *all* problems and reports them together, then `validateConf
 | `services` | array | `[]` | Preview services. |
 | `environments` | array | `[]` | Named private-environment sets. |
 | `promptTemplates` | array | `[]` | Project prompt templates. |
-| `scopes` | array | six defaults | Ticket scopes offered in the UI and rendered into prompts. |
+| `scopes` | array | `[]` | Deprecated legacy categories; accepted for compatibility, no longer offered as choices. |
 | `agents` | array | `[]` | Per-agent overrides (`binary`, extra `args`). |
 | `safety` | object | see below | Validation policy rendered into prompts. |
 
-The default scopes, used when `scopes` is omitted:
+Ticket scopes are the service IDs declared in `services` in `gantry.yaml`. The ticket form offers checkboxes and allows multiple selections; new tickets select all current services by default. Clear all selections for workspace-wide work. Workspaces with no services offer no scope choices.
 
-| id | label | description |
-| -- | ----- | ----------- |
-| `both` | Frontend + backend | frontend and backend |
-| `frontend` | Frontend | frontend |
-| `backend` | Backend | backend |
-| `operations` | Operations | operations and infrastructure |
-| `data` | Data | data migrations and configuration |
-| `testing` | Testing | testing and quality assurance |
+Ticket create/update requests accept `scopes: string[]`. Unknown service IDs and malformed values are rejected; duplicate IDs are removed. Omitting `scopes` on an update preserves the selection. Explicit `[]` clears it. Selected services removed from YAML remain visible as unavailable and can be deselected; they do not prevent unrelated ticket edits. Scope describes the requested work; it does not limit worktree creation or preview dependencies.
+
+Existing tickets retain their legacy `scope`; unrelated edits preserve it until the service selection changes. `both` resolves to all current services; a category matching a service ID or repository ID resolves to those services. Unmatched categories are displayed as legacy scopes and remain editable. Existing top-level `scopes` entries are accepted but do not add UI options. The API status exposes resolved `scopes` and `scopeDescription`, retaining `scope` for older clients.
 
 ## `project`
 
@@ -146,8 +141,8 @@ One engine (`packages/shared/src/config/vars.ts`) serves config values, hooks, h
 | -------- | ----- |
 | `${ticket.title}` | Ticket title |
 | `${ticket.description}`, `${ticket.notes}` | Ticket notes (alias kept for legacy compatibility) |
-| `${ticket.scope}` | Scope id |
-| `${ticket.scopeDescription}` | Scope description |
+| `${ticket.scope}` | Comma-separated selected service IDs |
+| `${ticket.scopeDescription}` | Selected service IDs, workspace-wide text, or the retained legacy scope |
 | `${ticket.branch}` | Ticket branch |
 | `${branch}` | Same as `${ticket.branch}` |
 | `${workspace}` | Workspace root (realpath) |
@@ -298,17 +293,6 @@ promptTemplates:
       - The frontend lives in ${repo.frontend}; API routes in ${repo.backend}.
       - Verify against the preview at ${url.frontend} and record evidence in ${artifactDir}.
       - Never mutate an existing record; create only ${safety.testRecordPrefix}-prefixed data.
-
-scopes:
-  - id: both
-    label: Frontend + backend
-    description: frontend and backend
-  - id: frontend
-    label: Frontend
-    description: frontend
-  - id: backend
-    label: Backend
-    description: backend
 
 agents:
   - id: codex

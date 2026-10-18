@@ -1,3 +1,4 @@
+import { ticketServiceScopes } from '../../shared/src/ticket.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type StatusView, type ProjectView, type TicketView } from './api.js';
 import { Chip, ConfirmDialog, stateTone } from './common.js';
@@ -263,13 +264,13 @@ function TicketCard({ ticket, jobs, scopes, onEdit, onStart, onDelete, onStatus,
   onDragStart: () => void;
 }) {
   const job = jobs.find((candidate) => candidate.ticketId === ticket.id && candidate.state !== 'succeeded');
-  const scope = scopes.find((candidate) => candidate.id === ticket.scope);
+  const scopeLabel = ticket.scopeDescription?.startsWith('Legacy scope:') ? ticket.scopeDescription : ticket.scopes?.join(', ') || (ticket.scopes ? 'Workspace-wide' : scopes.find((candidate) => candidate.id === ticket.scope)?.label ?? ticket.scope);
   const runState = ticket.run?.state;
   const active = runState === 'running' || runState === 'starting' || runState === 'interrupting';
   return (
     <article className="card" draggable onDragStart={onDragStart} data-ticket-id={ticket.id}>
       <div className="meta">
-        <span>{scope?.label ?? ticket.scope}</span>
+        <span className="scope-label">{scopeLabel}</span>
         <span className="grow" />
         <button aria-label="Move up" onClick={() => onMove(-1)}>↑</button>
         <button aria-label="Move down" onClick={() => onMove(1)}>↓</button>
@@ -328,7 +329,9 @@ function TicketDialog({ project, ticket, onClose, run }: {
 }) {
   const [title, setTitle] = useState(ticket?.title ?? '');
   const [description, setDescription] = useState(ticket?.description ?? '');
-  const [scope, setScope] = useState(ticket?.scope ?? project.scopes[0]?.id ?? 'both');
+  const [scopes, setScopes] = useState(() => ticketServiceScopes(ticket ?? {}, project.services));
+  const [scopesTouched, setScopesTouched] = useState(false);
+  const scopeIds = [...new Set([...project.services.map((service) => service.id), ...(ticket?.scopes ?? [])])];
   const [branch, setBranch] = useState(ticket?.branch ?? '');
   const [branchTouched, setBranchTouched] = useState(Boolean(ticket));
   const [additions, setAdditions] = useState(ticket?.additions ?? '');
@@ -348,11 +351,18 @@ function TicketDialog({ project, ticket, onClose, run }: {
             <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What should the agent do? Include context, constraints, and links." />
           </label>
           <div className="row">
-            <label>Scope
-              <select value={scope} onChange={(event) => setScope(event.target.value)}>
-                {project.scopes.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
-              </select>
-            </label>
+            <fieldset className="ticket-scopes">
+              <legend>Scope</legend>
+              <p className="muted">Select affected services. Leave empty for workspace-wide work.</p>
+              <div className="scope-options">
+                {scopeIds.map((id) => <label key={id}>
+                  <input type="checkbox" checked={scopes.includes(id)} onChange={(event) => { setScopesTouched(true); setScopes((selected) => event.target.checked ? [...selected, id] : selected.filter((value) => value !== id)); }} />
+                  <span>{id}{!project.services.some((service) => service.id === id) && ' (unavailable)'}</span>
+                </label>)}
+              </div>
+              {!project.services.length && <p className="muted">No services configured in gantry.yaml.</p>}
+              {ticket && ticket.scopeDescription?.startsWith('Legacy scope:') && <p className="muted">Legacy scope: {ticket.scope}. Select services to replace it.</p>}
+            </fieldset>
             <label>Branch
               <input value={branch} onChange={(event) => { setBranch(event.target.value); setBranchTouched(true); }} />
             </label>
@@ -363,7 +373,9 @@ function TicketDialog({ project, ticket, onClose, run }: {
           <div className="actions">
             <button onClick={onClose}>Cancel</button>
             <button className="primary" disabled={!title.trim()} onClick={() => {
-              const input = { title, description, scope, branch, additions: additions || null };
+              const originalScopes = ticket ? ticketServiceScopes(ticket, project.services) : [];
+              const scopeChanged = !ticket || scopesTouched || scopes.length !== originalScopes.length || scopes.some((id) => !originalScopes.includes(id));
+              const input = { title, description, ...(scopeChanged ? { scopes } : {}), branch, additions: additions || null };
               void run(() => (ticket ? api.updateTicket(ticket.id, input) : api.createTicket(project.id, input))).then((ok) => { if (ok) onClose(); });
             }}>
               {ticket ? 'Save' : 'Create ticket'}

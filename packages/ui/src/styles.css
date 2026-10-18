@@ -220,3 +220,13 @@ dialog pre.prompt, .dialog pre.prompt {
   padding: 10px 12px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow: auto;
 }
+
+.ticket-scopes { flex: 1; min-width: 0; margin: 0; padding: 0; border: 0; }
+.ticket-scopes legend { font-size: 13px; }
+.ticket-scopes p { font-size: 12px; }
+.scope-options { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.scope-options label { display: flex; flex-direction: row; align-items: center; gap: 8px; min-height: 36px; min-width: 0; }
+.scope-options input { width: auto; margin: 0; }
+.scope-options span { overflow-wrap: anywhere; }
+
+.card .scope-label { min-width: 0; overflow-wrap: anywhere; }

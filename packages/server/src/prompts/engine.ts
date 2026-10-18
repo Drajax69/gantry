@@ -1,6 +1,6 @@
 import { ticketWorkflow } from '../tickets/workflow.js';
 import path from 'node:path';
-import { interpolate, VarError, BUILTIN_TEMPLATES, type ProjectConfig, type PromptLayer } from '@gantry/shared';
+import { interpolate, VarError, ticketScopeDescription, ticketServiceScopes, BUILTIN_TEMPLATES, type ProjectConfig, type PromptLayer } from '@gantry/shared';
 import type { LoadedProject } from '../projects/registry.js';
 import type { TicketRow } from '../tickets/store.js';
 
@@ -67,8 +67,8 @@ export function buildPromptVars(
     'ticket.title': ticket.title,
     'ticket.description': ticket.description || 'No additional notes were provided.',
     'ticket.notes': ticket.description || 'No additional notes were provided.',
-    'ticket.scope': ticket.scope,
-    'ticket.scopeDescription': config.scopes.find((scope) => scope.id === ticket.scope)?.description || ticket.scope,
+    'ticket.scope': ticketServiceScopes(ticket, config.services).join(', '),
+    'ticket.scopeDescription': ticketScopeDescription(ticket, config.services),
     'ticket.branch': ticket.branch,
     branch: ticket.branch,
     workspace: project.workspace,
@@ -151,8 +151,8 @@ function dryRunVars(config: ProjectConfig): Record<string, string> {
     'ticket.title': 'Example ticket',
     'ticket.description': 'Example description',
     'ticket.notes': 'Example description',
-    'ticket.scope': config.scopes[0]?.id ?? 'both',
-    'ticket.scopeDescription': config.scopes[0]?.description ?? 'all areas',
+    'ticket.scope': config.services.map((service) => service.id).join(', '),
+    'ticket.scopeDescription': ticketScopeDescription({}, config.services),
     'ticket.branch': `${config.project.branchPrefix}/example`,
     branch: `${config.project.branchPrefix}/example`,
     workspace: '/workspace',

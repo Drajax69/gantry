@@ -1,3 +1,4 @@
+import { ticketServiceScopes } from '@gantry/shared';
 import { ZodError } from 'zod';
 import { workspaceWorkflow, saveWorkspaceWorkflow } from '../projects/workflow.js';
 import { ticketWorkflow, changeStep, replaceGraph, saveTicketWorkflow } from '../tickets/workflow.js';
@@ -16,7 +17,7 @@ import { findInstructionFiles } from '../prompts/instructions.js';
 import { readPreviewLoginEmail } from '../supervisor/preview-login.js';
 import { initializeWorkspace } from '../projects/initialize.js';
 import { ticketWorkspace } from '../tickets/workspace.js';
-import { validateTicketInput, type TicketInput } from '../tickets/store.js';
+import { TicketError, validateTicketInput, type TicketInput } from '../tickets/store.js';
 
 /**
  * HTTP API + dashboard host. Routes are grouped by concern in ./routes/*;
@@ -125,8 +126,12 @@ export async function createHttpServer(app: GantryApp) {
   // ---- prompt preview ------------------------------------------------------
   fastify.post('/api/projects/:projectId/prompt-preview', async (request) => {
     const { projectId } = request.params as { projectId: string };
-    const body = request.body as { templateId?: string; title?: string; description?: string; scope?: string; branch?: string; additions?: string | null; agentId?: string };
+    const body = request.body as { templateId?: string; title?: string; description?: string; scope?: string; scopes?: string[]; branch?: string; additions?: string | null; agentId?: string };
     const project = await app.loadProjectById(projectId);
+    const input = validateTicketInput(ticketScopeInput({ ...body, title: body.title ?? 'Example ticket' }, project.config.services, true));
+    for (const id of input.scopes ?? []) {
+      if (!project.config.services.some((service) => service.id === id)) throw new TicketError(`Unknown service scope "${id}".`);
+    }
     const templateId = body.templateId ?? project.config.project.defaultPromptTemplate;
     const body_ = templateBody(project.config, templateId);
     const ticket = {
@@ -135,7 +140,8 @@ export async function createHttpServer(app: GantryApp) {
       title: body.title ?? 'Example ticket',
       description: body.description ?? '',
       status: 'backlog' as const,
-      scope: body.scope ?? project.config.scopes[0]?.id ?? 'both',
+      scope: input.scope,
+      scopes: input.scopes,
       branch: body.branch ?? `${project.config.project.branchPrefix}/example`,
       additions: body.additions ?? null,
       position: 0,
@@ -165,7 +171,7 @@ export async function createHttpServer(app: GantryApp) {
   fastify.post('/api/projects/:projectId/tickets', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
     const project = await app.loadProjectById(projectId);
-    const ticket = app.tickets.create(projectId, request.body as unknown as TicketInput, project.config.scopes.map((scope) => scope.id), project.config.project.branchPrefix, workspaceWorkflow(project));
+    const ticket = app.tickets.create(projectId, ticketScopeInput(request.body as TicketInput, project.config.services, true), project.config.services.map((service) => service.id), project.config.project.branchPrefix, workspaceWorkflow(project));
     return reply.code(201).send(ticket);
   });
 
@@ -180,8 +186,8 @@ export async function createHttpServer(app: GantryApp) {
     const ticket = app.tickets.get(ticketId);
     if (!ticket) throw Object.assign(new Error('Ticket not found.'), { statusCode: 404 });
     const project = await app.loadProjectById(ticket.project_id);
-    const validated = validateTicketInput(request.body as unknown as TicketInput, ticket, project.config.project.branchPrefix);
-    const updated = app.tickets.update(ticketId, validated, project.config.scopes.map((scope) => scope.id), project.config.project.branchPrefix);
+    const validated = ticketScopeInput(request.body as TicketInput, project.config.services);
+    const updated = app.tickets.update(ticketId, validated, project.config.services.map((service) => service.id), project.config.project.branchPrefix);
     if (updated.status === 'done') await app.supervisor.stopDonePreviews();
     return updated;
   });
@@ -342,4 +348,15 @@ export async function createHttpServer(app: GantryApp) {
 
 function latestRun(app: GantryApp, ticketId: string) {
   return app.db.prepare('SELECT * FROM runs WHERE ticket_id=? ORDER BY started_at DESC LIMIT 1').get(ticketId) as { session_id: string | null; agent: string; workspace: string | null; project_id: string } | undefined;
+}
+
+/** Legacy clients may still submit a category; new clients send service IDs. */
+function ticketScopeInput(input: TicketInput, services: { id: string; repository: string }[], creating = false): TicketInput {
+  if (input.scopes !== undefined) return input;
+  if (input.scope === undefined && !creating) return input;
+  const scopes = ticketServiceScopes(input, services);
+  if (input.scope && input.scope !== 'both' && !scopes.length) {
+    throw new TicketError(`Legacy scope "${input.scope}" has no matching service. Select service scopes instead.`);
+  }
+  return { ...input, scopes };
 }

@@ -86,3 +86,65 @@ test('moving a ticket through the HTTP API does not prepare worktrees or start a
     await temp.cleanup();
   }
 });
+
+test('HTTP scopes follow YAML services and round-trip through status, updates and prompt preview', async () => {
+  const { createHttpServer } = await import('../packages/server/src/http/server.js');
+  const temp = await tempDir('gantry-service-scopes-');
+  const workspace = path.join(temp.dir, 'workspace');
+  await initFixtureRepo(workspace);
+  const previousData = process.env.GANTRY_DATA_DIR;
+  process.env.GANTRY_DATA_DIR = path.join(temp.dir, 'data');
+  const app = new GantryApp(createAppContext());
+  const tick = vi.spyOn(app.supervisor, 'tick').mockResolvedValue();
+  const server = await createHttpServer(app);
+  try {
+    await initializeWorkspace(workspace);
+    const project = await app.addWorkspace(workspace);
+    const repository = project.config.repositories[0]!.id;
+    project.config.services = ['web', 'worker'].map((id) => ({
+      id, repository, runtime: 'command', start: { kind: 'argv', value: ['node', '--version'] },
+      dependsOn: [], env: {},
+    })) as typeof project.config.services;
+    project.config.scopes = [{ id: 'obsolete', label: 'Old category', description: 'Do not offer' }];
+    await fs.writeFile(project.configPath, JSON.stringify(project.config));
+    const headers = { host: `127.0.0.1:${app.ctx.settings.port}` };
+    const post = (url: string, payload: unknown) => server.inject({ method: 'POST', url, headers, payload: JSON.stringify(payload) });
+    // Fastify needs a JSON content type to parse the serialized payload.
+    Object.assign(headers, { 'content-type': 'application/json' });
+    const createUrl = `/api/projects/${project.config.project.id}/tickets`;
+    const created = await post(createUrl, { title: 'TEST_service_scopes', scopes: ['web', 'worker', 'web'] });
+    assert.equal(created.statusCode, 201, created.body);
+    const ticket = created.json();
+    assert.deepEqual(ticket.scopes, ['web', 'worker']);
+    const updated = await post(`/api/tickets/${ticket.id}/update`, { scopes: ['worker'] });
+    assert.equal(updated.statusCode, 200, updated.body);
+    assert.deepEqual(updated.json().scopes, ['worker']);
+    const partial = await post(`/api/tickets/${ticket.id}/update`, { description: 'Keep selection' });
+    assert.deepEqual(partial.json().scopes, ['worker']);
+    const status = await server.inject({ url: '/api/status', headers });
+    assert.deepEqual(status.json().projects[0].scopes.map((scope: { id: string }) => scope.id), ['web', 'worker']);
+    assert.deepEqual(status.json().tickets[0].scopes, ['worker']);
+    const preview = await post(`/api/projects/${project.config.project.id}/prompt-preview`, { title: 'Preview', scopes: ['worker'] });
+    assert.equal(preview.statusCode, 200, preview.body);
+    assert.match(preview.json().rendered, /Scope: worker/);
+    for (const scopes of [['obsolete'], ['missing'], 'web', null, [1]]) {
+      assert.equal((await post(createUrl, { title: 'Invalid', scopes })).statusCode, 400);
+      assert.equal((await post(`/api/projects/${project.config.project.id}/prompt-preview`, { scopes })).statusCode, 400);
+    }
+    assert.deepEqual((await post(createUrl, { title: 'Default selection' })).json().scopes, ['web', 'worker']);
+    assert.deepEqual((await post(`/api/tickets/${ticket.id}/update`, { scopes: [] })).json().scopes, []);
+    const legacy = app.tickets.create(project.config.project.id, { title: 'Legacy category', scope: 'testing' }, [], 'ticket');
+    const legacyEdit = await post(`/api/tickets/${legacy.id}/update`, { description: 'Unrelated edit' });
+    assert.equal(legacyEdit.statusCode, 200, legacyEdit.body);
+    assert.equal(legacyEdit.json().scope, 'testing');
+    const legacyStatus = (await server.inject({ url: '/api/status', headers })).json().tickets.find((entry: { id: string }) => entry.id === legacy.id);
+    assert.equal(legacyStatus.scopeDescription, 'Legacy scope: testing');
+    assert.deepEqual(legacyStatus.scopes, []);
+  } finally {
+    await server.close();
+    tick.mockRestore();
+    await app.shutdown();
+    if (previousData === undefined) delete process.env.GANTRY_DATA_DIR; else process.env.GANTRY_DATA_DIR = previousData;
+    await temp.cleanup();
+  }
+});

@@ -207,14 +207,7 @@ export async function importLegacyWorkspace(input: LegacyImportInput, db?: Datab
     services,
     environments,
     promptTemplates: [],
-    scopes: [
-      { id: 'both', label: 'Frontend + backend', description: 'frontend and backend' },
-      { id: 'frontend', label: 'Frontend', description: 'frontend' },
-      { id: 'backend', label: 'Backend', description: 'backend' },
-      { id: 'operations', label: 'Operations', description: 'operations and infrastructure' },
-      { id: 'data', label: 'Data', description: 'data migrations and configuration' },
-      { id: 'testing', label: 'Testing', description: 'testing and quality assurance' },
-    ],
+    scopes: [],
     agents: [],
     safety: { testRecordPrefix: 'TEST_', manualTestFile: 'manual-test-needed.md', policy: undefined },
   };

@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 let tickets = [];
 let workspaceGraph = { nodes: [{ id: 'plan', label: 'Plan', kind: 'agent', instructions: '', dependsOn: [] }] };
 let workspacePrompt = 'Implement ${ticket.title} in the prepared worktrees.';
-const project = { id: 'fixture', name: 'Fixture workspace', workspace: '/fixture/workspace', defaultAgent: 'generic', scopes: [{id:'both',label:'Frontend + backend'}], environments: [], agents: [{ id:'generic', capabilities:{ available:true,label:'Test agent' } }] };
+const project = { id: 'fixture', name: 'Fixture workspace', workspace: '/fixture/workspace', defaultAgent: 'generic', scopes: [], services: [{ id: 'frontend', repository: 'frontend' }], environments: [], agents: [{ id:'generic', capabilities:{ available:true,label:'Test agent' } }] };
 let overrides = null;
 const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');

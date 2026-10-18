@@ -1,7 +1,7 @@
 import { ticketWorkflow } from './tickets/workflow.js';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { redactEnv } from '@gantry/shared';
+import { redactEnv, ticketServiceScopes, ticketScopeDescription } from '@gantry/shared';
 import type { GantryApp } from './app.js';
 import { repositoryPath } from './prompts/engine.js';
 import { findInstructionFiles } from './prompts/instructions.js';
@@ -47,7 +47,7 @@ export async function buildStatus(app: GantryApp): Promise<Record<string, unknow
       defaultAgent: project.config.project.defaultAgent,
       defaultPromptTemplate: project.config.project.defaultPromptTemplate,
       branchPrefix: project.config.project.branchPrefix,
-      scopes: project.config.scopes,
+      scopes: project.config.services.map((service) => ({ id: service.id, label: service.id, description: service.id })),
       environments,
       agents,
       repositories: project.config.repositories.map((repo) => ({ ...repo, absolutePath: repositoryPath(project, repo.id) })),
@@ -147,6 +147,8 @@ export async function buildStatus(app: GantryApp): Promise<Record<string, unknow
         description: ticket.description,
         status: ticket.status,
         scope: ticket.scope,
+        scopes: ticketServiceScopes(ticket, project.config.services),
+        scopeDescription: ticketScopeDescription(ticket, project.config.services),
         branch: ticket.branch,
         additions: ticket.additions,
         workflow: ticketWorkflow(ticket),
