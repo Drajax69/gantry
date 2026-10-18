@@ -120,6 +120,36 @@ Configure the default provider once in Settings. Ticket conversations remember t
 
 Gantry manages the handoff to your external coding app. The review chat stays beside the diff so you can discuss and edit the code you are reviewing.
 
+### Let your workspace graph do the handoffs
+
+Give each stage its own instructions, provider, model, and reasoning effort. Use a
+strong planner, a faster implementation model, and an independent reviewer.
+Gantry prepares the ticket worktrees and runs the stages in separate agent chats,
+passing their results forward automatically.
+
+```mermaid
+flowchart LR
+  Ticket[Ticket enters In progress] --> Plan[Plan]
+  Plan --> Build[Implement]
+  Build --> Test[Test]
+  Test --> PR[Create PR]
+  PR --> Review[Review]
+  Review -->|Changes requested| Build
+  Review -->|Complete| Finish[Ready]
+```
+
+Enable automatic execution in **Workspace graph**, or select **Start workflow**
+inside a ticket. Up to ten tickets can run at once; stages within each ticket run
+sequentially. Configure correction routes and attempt limits so review findings
+return to implementation automatically. Pause, inspect stage history, or open a
+stage's external chat when you need to intervene. Only blocked work produces
+attention notices in the app.
+
+Codex, Claude Code, and tool-capable OpenAI-compatible endpoints can execute
+stages. API-stage transcripts stay in Gantry; Codex and Claude retain their own
+conversations. Keep Gantry running to execute the graph. Interrupted stages pause
+for inspection after a restart. [Execution details and limits](docs/architecture.md#automatic-workspace-workflows).
+
 ## Your repositories. Your stack.
 
 A workspace can contain one Git repository or several. A ticket can bring the matching worktrees and PRs together across them.

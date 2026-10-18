@@ -1,7 +1,7 @@
-import "server-only";
-import { spawn } from "../spawn";
-import type { ToolUse } from "@/lib/types";
-import type { StoredAgent } from "./store";
+import 'server-only';
+import { spawn } from '../spawn';
+import type { ToolUse } from '@/lib/types';
+import type { StoredAgent } from './store';
 
 /** What a driver reports while it answers. */
 export interface RunHooks {
@@ -15,12 +15,14 @@ export interface RunHooks {
 }
 
 export interface Turn {
-  role: "user" | "assistant";
+  role: 'user' | 'assistant';
   text: string;
 }
 
 export interface RunInput {
   agent: StoredAgent;
+  /** Explicit autonomous ticket execution; review-chat defaults remain unchanged. */
+  workflow?: { reasoningEffort?: string; addDirs: string[] };
   /** The editable local checkout under review. */
   cwd: string;
   system: string;
@@ -40,38 +42,76 @@ export type Driver = (input: RunInput) => Promise<void>;
 export function runCli(
   cmd: string,
   args: string[],
-  opts: { cwd: string; stdin: string; signal: AbortSignal; onLine: (line: string) => void },
+  opts: { cwd: string; stdin: string; signal: AbortSignal; onLine: (line: string) => void; processGroup?: boolean },
 ): Promise<{ code: number | null; stopped: boolean; killed?: string; stderr: string; spawnError?: Error }> {
   return new Promise((resolve) => {
     const child = spawn(/*turbopackIgnore: true*/ cmd, args, {
-      cwd: opts.cwd, env: process.env, stdio: ["pipe", "pipe", "pipe"], signal: opts.signal, killSignal: "SIGTERM",
+      cwd: opts.cwd,
+      env: process.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      signal: opts.signal,
+      killSignal: 'SIGTERM',
+      detached: !!opts.processGroup && process.platform !== 'win32',
     });
-    child.stdin.on("error", () => {});
+    let killTimer: NodeJS.Timeout | undefined;
+    const terminateGroup = (force = false) => {
+      if (!opts.processGroup || !child.pid) return;
+      if (process.platform === 'win32') {
+        const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+        killer.on('error', () => {});
+      } else {
+        try {
+          process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM');
+        } catch {
+          /* already stopped */
+        }
+      }
+    };
+    const abort = () => {
+      terminateGroup();
+      killTimer = setTimeout(() => terminateGroup(true), 3000);
+      killTimer.unref();
+    };
+    const exit = () => terminateGroup(true);
+    const cleanup = () => {
+      if (killTimer) clearTimeout(killTimer);
+      opts.signal.removeEventListener('abort', abort);
+      process.removeListener('exit', exit);
+    };
+    if (opts.processGroup) {
+      opts.signal.addEventListener('abort', abort, { once: true });
+      process.once('exit', exit);
+      if (opts.signal.aborted) abort();
+    }
+    child.stdin.on('error', () => {});
     child.stdin.end(opts.stdin);
-    let buf = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
+    let buf = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
       buf += chunk;
       let nl;
-      while ((nl = buf.indexOf("\n")) >= 0) {
+      while ((nl = buf.indexOf('\n')) >= 0) {
         opts.onLine(buf.slice(0, nl));
         buf = buf.slice(nl + 1);
       }
     });
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => {
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
       stderr = (stderr + chunk).slice(-4000);
     });
     let done = false;
-    child.on("error", (err) => {
-      if (done || err.name === "AbortError") return;
+    child.on('error', (err) => {
+      if (done || err.name === 'AbortError') return;
       done = true;
+      cleanup();
       resolve({ code: null, stopped: false, stderr, spawnError: err });
     });
-    child.on("close", (code, signal) => {
+    child.on('close', (code, signal) => {
       if (done) return;
       done = true;
+      if (opts.signal.aborted) terminateGroup(true);
+      cleanup();
       if (buf.trim()) opts.onLine(buf);
       // Only our own abort counts as stopped; a signal from anywhere else is a crash worth explaining.
       resolve({ code, stopped: opts.signal.aborted, ...(signal && !opts.signal.aborted ? { killed: signal } : {}), stderr });
@@ -80,31 +120,25 @@ export function runCli(
 }
 
 /** Shared handling of how a CLI run ended. */
-export function cliOutcome(
-  name: string,
-  cmd: string,
-  r: Awaited<ReturnType<typeof runCli>>,
-  hooks: RunHooks,
-  failed: boolean,
-) {
+export function cliOutcome(name: string, cmd: string, r: Awaited<ReturnType<typeof runCli>>, hooks: RunHooks, failed: boolean) {
   if (r.spawnError) {
     hooks.error(`Couldn't start "${cmd}": ${r.spawnError.message}. Is the ${name} CLI installed and on PATH?`);
   } else if (r.stopped) {
-    hooks.error("Stopped.");
+    hooks.error('Stopped.');
   } else if (r.killed) {
-    const tail = r.stderr.trim().split("\n").slice(-3).join(" ");
-    hooks.error(`${name} was killed (${r.killed}) before it finished.${tail ? ` ${tail}` : ""}`);
+    const tail = r.stderr.trim().split('\n').slice(-3).join(' ');
+    hooks.error(`${name} was killed (${r.killed}) before it finished.${tail ? ` ${tail}` : ''}`);
   } else if (r.code !== 0 && !failed) {
-    hooks.error(r.stderr.trim().split("\n").slice(-3).join(" ") || `${cmd} exited with code ${r.code}`);
+    hooks.error(r.stderr.trim().split('\n').slice(-3).join(' ') || `${cmd} exited with code ${r.code}`);
   }
 }
 
 /** Earlier conversation, as text, for an agent joining a chat another agent started. */
 export function transcript(history: Turn[], max = 12_000): string {
-  if (!history.length) return "";
-  let out = "";
+  if (!history.length) return '';
+  let out = '';
   for (const t of [...history].reverse()) {
-    const line = `${t.role === "user" ? "Reviewer" : "Assistant"}: ${t.text}\n\n`;
+    const line = `${t.role === 'user' ? 'Reviewer' : 'Assistant'}: ${t.text}\n\n`;
     if (out.length + line.length > max) break;
     out = line + out;
   }
@@ -112,7 +146,7 @@ export function transcript(history: Turn[], max = 12_000): string {
 }
 
 export function toolDetail(input: Record<string, unknown> | undefined): string {
-  if (!input) return "";
+  if (!input) return '';
   const v = input.command ?? input.file_path ?? input.pattern ?? input.path ?? input.url;
-  return typeof v === "string" ? v : JSON.stringify(input).slice(0, 200);
+  return typeof v === 'string' ? v : JSON.stringify(input).slice(0, 200);
 }

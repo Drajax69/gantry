@@ -7,6 +7,7 @@ import { initFixtureRepo, tempDir, git } from './helpers.js';
 import { GantryApp } from '../packages/server/src/app.js';
 import { createAppContext } from '../packages/server/src/config/app.js';
 import { initializeWorkspace } from '../packages/server/src/projects/initialize.js';
+import { DEFAULT_WORKFLOW } from '../packages/shared/src/workflow.js';
 import { ticketWorkspace } from '../packages/server/src/tickets/workspace.js';
 
 test('new workspace needs no provider config, prepares reusable ticket branches, protects primary and Done', async () => {
@@ -20,7 +21,7 @@ test('new workspace needs no provider config, prepares reusable ticket branches,
     await initializeWorkspace(workspace);
     const project = await app.addWorkspace(workspace);
     assert.equal(project.config.services.length, 0);
-    const ticket = app.tickets.create(project.config.project.id, { title: 'Build a feature', scope: 'both' }, project.config.scopes.map(s => s.id), 'ticket');
+    const ticket = app.tickets.create(project.config.project.id, { title: 'Build a feature', scope: 'both' }, project.config.scopes.map(s => s.id), 'ticket', DEFAULT_WORKFLOW);
     assert.equal((await ticketWorkspace(app, ticket.id)).checkouts.length, 0);
     const first = await ticketWorkspace(app, ticket.id, true);
     assert.equal(first.checkouts.length, 1);
@@ -43,6 +44,10 @@ test('new workspace needs no provider config, prepares reusable ticket branches,
     const withPrompt = await ticketWorkspace(app, ticket.id, true);
     assert.ok(withPrompt.prompt?.includes(`implement Build a feature at ${first.checkouts[0]!.path}; create a PR.`));
     assert.ok(!withPrompt.prompt?.includes('${ticket.title}'));
+    assert.ok(withPrompt.prompt?.includes('Ticket workflow'));
+    assert.ok(withPrompt.stagePrompt?.includes(`implement Build a feature at ${first.checkouts[0]!.path}; create a PR.`));
+    assert.ok(!withPrompt.stagePrompt?.includes('Ticket workflow'));
+    assert.ok(!withPrompt.stagePrompt?.includes('workflow-progress'));
     app.tickets.patch(ticket.id, { status: 'done' });
     await assert.rejects(ticketWorkspace(app, ticket.id, true), /Reopen/);
   } finally { app.db.close(); if (previousData === undefined) delete process.env.GANTRY_DATA_DIR; else process.env.GANTRY_DATA_DIR = previousData; await temp.cleanup(); }
@@ -60,7 +65,7 @@ test('moving a ticket through the HTTP API does not prepare worktrees or start a
   try {
     await initializeWorkspace(workspace);
     const project = await app.addWorkspace(workspace);
-    const ticket = app.tickets.create(project.config.project.id, { title: 'TEST_f84f8f57_status_only', scope: 'both' }, project.config.scopes.map(s => s.id), 'ticket');
+    const ticket = app.tickets.create(project.config.project.id, { title: 'TEST_f84f8f57_status_only', scope: 'both' }, project.config.scopes.map(s => s.id), 'ticket', DEFAULT_WORKFLOW);
     const response = await server.inject({
       method: 'POST', url: `/api/tickets/${ticket.id}/update`,
       headers: { host: `127.0.0.1:${app.ctx.settings.port}` },

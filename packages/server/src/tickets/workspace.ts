@@ -26,6 +26,7 @@ export async function ticketWorkspace(app: GantryApp, ticketId: string, prepare 
   }
   if (prepare && !checkouts.length) throw new Error('Configure at least one worktree-enabled product repository in gantry.yaml.');
   let prompt: string | undefined;
+  let stagePrompt: string | undefined;
   if (prepare) {
     const previewId = previewIdFor(project.config.project.id, ticket.branch);
     const services = app.db.prepare('SELECT service_id, port FROM preview_services WHERE preview_id=?').all(previewId) as { service_id: string; port: number | null }[];
@@ -42,8 +43,10 @@ export async function ticketWorkspace(app: GantryApp, ticketId: string, prepare 
     });
     // Product repository variables must name the prepared worktrees, never the primary checkouts.
     for (const checkout of checkouts) vars[`repo.${checkout.repositoryId}`] = checkout.path;
-    prompt = renderPrompt(project, ticket, vars, { workflowPort: app.ctx.settings.port, ticket, project, instructionFiles: await findInstructionFiles(project), agentNotes: '', ticketAdditions: ticket.additions }).prompt;
+    const promptContext = { workflowPort: app.ctx.settings.port, ticket, project, instructionFiles: await findInstructionFiles(project), agentNotes: '', ticketAdditions: ticket.additions };
+    prompt = renderPrompt(project, ticket, vars, promptContext).prompt;
+    stagePrompt = renderPrompt(project, ticket, vars, {...promptContext,includeWorkflow:false}).prompt;
   }
   if (prepare && ticket.status === 'backlog') app.tickets.patch(ticketId, { status: 'in_progress' });
-  return { ticket, prompt, project: { id: project.config.project.id, name: project.config.project.name, workspace: project.workspace }, checkouts };
+  return { ticket, prompt, stagePrompt, project: { id: project.config.project.id, name: project.config.project.name, workspace: project.workspace }, checkouts };
 }

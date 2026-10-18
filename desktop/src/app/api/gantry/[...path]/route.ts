@@ -1,3 +1,4 @@
+import { executionFor } from "@/lib/server/workflow-executor";
 import { conversationFor, publicConversation } from "@/lib/server/ticket-conversations";
 import { syncGantrySpaces } from "@/lib/server/spaces";
 import type { StatusView } from "@/lib/client/gantry";
@@ -50,6 +51,8 @@ async function proxy(req: Request, context: Context) {
       body = await req.text();
       if (body.length > 1_000_000) return Response.json({ error: "Request is too large." }, { status: 413 });
     }
+    const workflowMutation = /^api\/tickets\/([\w-]+)\/(workflow|workflow-progress|start|resume|handoff)$/.exec(route);
+    if (req.method === 'POST' && workflowMutation && executionFor(workflowMutation[1])) return Response.json({error:'This ticket is managed by workflow automation. Use its execution controls.'},{status:409});
     const response = await fetch(new URL(`/${route}`, upstream), {
       method: req.method,
       headers: { "Content-Type": "application/json", Origin: upstream.origin },
@@ -59,10 +62,13 @@ async function proxy(req: Request, context: Context) {
       signal: AbortSignal.timeout(60000),
     });
     let responseBody: BodyInit | null = response.body;
+    const workflowRead = /^api\/tickets\/([\w-]+)\/workflow$/.exec(route);
+    if(req.method==='GET' && workflowRead && response.ok){const execution=executionFor(workflowRead[1]);if(execution){const original=await response.json();responseBody=JSON.stringify({graph:execution.graph,revision:original?.revision??0,states:Object.fromEntries(Object.entries(execution.steps).map(([id,state])=>[id,{state,message:execution.attempts.filter(a=>a.nodeId===id).at(-1)?.summary||''}]))});}}
+
     if (route === "api/status" && response.ok) {
       const status = await response.json() as StatusView;
       const spaces = syncGantrySpaces(status);
-      responseBody = JSON.stringify({ ...status, tickets: status.tickets.map(t => ({ ...t, reviewSpaceId: spaces[t.id], conversation: publicConversation(conversationFor(t.id)) })) });
+      responseBody = JSON.stringify({ ...status, tickets: status.tickets.map(t => { const execution=executionFor(t.id); return { ...t, ...(execution ? {workflow:{graph:execution.graph,revision:t.workflow?.revision??0,states:Object.fromEntries(Object.entries(execution.steps).map(([id,state])=>[id,{state,message:execution.attempts.filter(a=>a.nodeId===id).at(-1)?.summary||''}]))},execution:{state:execution.state,message:execution.message,updatedAt:execution.updatedAt}} : {}), reviewSpaceId: spaces[t.id], conversation: publicConversation(conversationFor(t.id)) }; }) });
     }
     return new Response(responseBody, {
       status: response.status,

@@ -20,7 +20,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/api/projects/fixture/chat-prompt') { if (req.method === 'POST') workspacePrompt=body.prompt; return send({prompt:workspacePrompt}); }
   if (req.url === "/__fixture") { overrides = body.status ?? null; return send({ok:true}); }
   if (req.url === '/api/projects/fixture/tickets') {
-    const ticket = { ...body,id:'ticket-1',projectId:'fixture',status:'backlog',branch:'ticket/review',run:null,pullRequests:[],artifacts:[] };
+    const ticket = { ...body,id:'ticket-1',projectId:'fixture',status:'backlog',branch:'ticket/review',run:null,pullRequests:[],artifacts:[],workflow:{graph:structuredClone(workspaceGraph),revision:0,states:Object.fromEntries(workspaceGraph.nodes.map(n=>[n.id,{state:'pending',message:''}]))} };
     tickets = [ticket]; return send(ticket);
   }
   if (['/api/tickets/ticket-1/prepare', '/api/tickets/ticket-1/workspace'].includes(req.url)) {
@@ -29,8 +29,9 @@ const server = http.createServer(async (req, res) => {
       try { execFileSync('git', ['-C', cwd, 'checkout', '-b', tickets[0].branch], {stdio:'pipe'}); } catch { /* branch already exists */ }
       tickets[0].status = 'in_progress';
     }
-    return send({ ticket: tickets[0], prompt:workspacePrompt.replace('${ticket.title}', tickets[0].title), project, checkouts: [{repositoryId:'frontend',path:cwd}] });
+    return send({ ticket: tickets[0], stagePrompt:workspacePrompt.replace('${ticket.title}', tickets[0].title), prompt:workspacePrompt.replace('${ticket.title}', tickets[0].title), project, checkouts: [{repositoryId:'frontend',path:cwd}] });
   }
+  if (req.url === '/api/tickets/ticket-1/workflow') {if(req.method==='POST') tickets[0].workflow={...body,states:Object.fromEntries(body.graph.nodes.map(n=>[n.id,{state:'pending',message:''}]))};return send(tickets[0]?.workflow ?? null);}
   if (req.url === '/api/tickets/ticket-1/prompt') return send({agentId:'generic',prompt:'Implement the fixture ticket.'});
   if (req.url === '/api/tickets/ticket-1/update') { Object.assign(tickets[0],body); return send(tickets[0]); }
   if (req.url === '/api/tickets/ticket-1/start') { tickets[0].run = {agent:'generic',state:'running',logUrl:'/logs/run/run-1'}; return send({ok:true,jobId:'job-1'}); }

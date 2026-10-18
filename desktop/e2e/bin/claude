@@ -17,6 +17,18 @@ process.stdin.on("end", async () => {
     process.stderr.write("API Error: overloaded\n");
     process.exit(1);
   }
+  if(prompt.includes('GANTRY_RESULT ')) {
+    const resumedIndex=process.argv.indexOf('--resume');
+    const session=resumedIndex>=0?process.argv[resumedIndex+1]:require('node:crypto').randomUUID();
+    const review=prompt.includes('Stage: Review\n');
+    const corrected=prompt.includes('Fixture correction implemented');
+    const outcome=review&&!corrected?'changes_requested':'done';
+    const summary=outcome==='changes_requested'?'Fix fixture edge case':prompt.includes('Fix fixture edge case')?'Fixture correction implemented':'Fixture stage validated';
+    fs.writeFileSync(path.join(process.cwd(),'workflow-fixture.txt'),summary);
+    out({type:'system',session_id:session});
+    out({type:'result',result:'GANTRY_RESULT '+JSON.stringify({outcome,summary}),session_id:session,is_error:false});
+    return;
+  }
   const resumed = process.argv.includes("--resume");
   // Like the real CLI, total_cost_usd is a running total for the session (one session per checkout here).
   const runs = fs.readFileSync(path.join(home, "claude-calls.jsonl"), "utf8").trim().split("\n")

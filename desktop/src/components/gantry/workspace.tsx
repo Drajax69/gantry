@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { ArrowUpRightIcon, GitBranchIcon, GitPullRequestIcon, LayoutListIcon, NetworkIcon, Loader2Icon, MonitorIcon, PlusIcon, RefreshCwIcon, MessageSquareIcon, CircleDashedIcon, CircleDotIcon, CircleCheckIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,10 @@ function State({ value }: { value: string }) {
   return <Badge variant="outline" className={cn("shrink-0 capitalize", /failed|error/.test(value) && "text-destructive")}>{labels[value] || value.replaceAll("_", " ")}</Badge>;
 }
 
+function TicketPreview({owner,onChat,onTicketReview,...props}:Omit<ComponentProps<typeof PreviewPane>,'onOpenChat'|'onReview'> & {owner?:TicketView;onChat:(ticket:TicketView)=>Promise<void>;onTicketReview:(urls:string[],ticket?:TicketView)=>Promise<void>}) {
+  return <PreviewPane {...props} onOpenChat={owner ? ()=>void onChat(owner) : undefined} onReview={owner ? ()=>void onTicketReview([],owner) : undefined} />;
+}
+
 export function GantryWorkspace() {
   const [reviewSpace, setReviewSpace] = useState<string | null>(null);
   const [data, setData] = useState<StatusView | null>(null);
@@ -56,6 +60,7 @@ export function GantryWorkspace() {
   const loading = useRef(false);
   const mounted = useRef(true);
   const refreshPending = useRef(false);
+  const executionNotices = useRef(new Map<string,string>());
   const refresh = useCallback(async () => {
     if (loading.current) { refreshPending.current = true; return; }
     loading.current = true;
@@ -90,6 +95,15 @@ export function GantryWorkspace() {
     document.addEventListener("visibilitychange", update);
     return () => { clearInterval(timer); window.removeEventListener("focus", update); document.removeEventListener("visibilitychange", update); };
   }, [area, ticketView, refresh]);
+  useEffect(()=>{
+    for(const item of data?.tickets ?? []){
+      const execution=item.execution;
+      if(!execution)continue;
+      const key=execution.state+execution.message;
+      if(executionNotices.current.get(item.id)!==key && execution.state==='waiting') toast.error(`${item.title} needs attention`,{description:execution.message,action:{label:'Open graph',onClick:()=>{setProjectId(item.projectId);setSelected(item.id);setTicketTab('details');}}});
+      executionNotices.current.set(item.id,key);
+    }
+  },[data]);
   const project = data?.projects.find((p) => p.id === projectId) ?? data?.projects[0];
   const tickets = data?.tickets.filter((t) => t.projectId === project?.id) ?? [];
   const ticketColor = useTicketColors(project?.id ?? "", tickets);
@@ -108,6 +122,10 @@ export function GantryWorkspace() {
     try { await action(); if (message) toast.success(message); await refresh(); return true; }
     catch (e) { toast.error((e as Error).message); return false; }
     finally { setBusy(false); }
+  }
+  async function openChatFor(owner:TicketView) {
+    if(owner.execution){openTicket(owner.id);return;}
+    await act(()=>openTicketChat(owner.id));
   }
   async function review(urls: string[], owner?: TicketView) {
     await act(async () => {
@@ -178,7 +196,7 @@ export function GantryWorkspace() {
                     {t.conversation && <span className="text-xs text-muted-foreground">Chat linked · {t.conversation.providerName}</span>}
                     {t.run && <span className="text-xs text-muted-foreground">{t.run.agent} · {t.run.state}</span>}
                   </button>
-                  <div className="gantry-ticket-actions flex flex-wrap gap-1 border-t px-2 py-1"><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, false, true)} aria-label={`Edit ticket ${t.title}`}>Edit</Button>{t.status === "in_progress" && <><Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => openTicketChat(t.id))} aria-label={`Open chat for ${t.title}`}><MessageSquareIcon />Open chat</Button><Button size="sm" variant="ghost" disabled={busy || !t.reviewSpaceId} onClick={() => void review([], t)} aria-label={`Open review space for ${t.title}`}><GitPullRequestIcon />Review<ArrowUpRightIcon /></Button><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, true)} aria-label={`Preview ${t.title}`}><MonitorIcon />Preview</Button></>}<Button size="sm" variant="ghost" className="ml-auto" disabled={busy || !!(t.run && ["starting", "running", "interrupting"].includes(t.run.state))} onClick={() => setDeleting(t)} aria-label={`Delete ticket ${t.title}`}><Trash2Icon />Delete</Button></div>
+                  <div className="gantry-ticket-actions flex flex-wrap gap-1 border-t px-2 py-1"><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, false, true)} aria-label={`Edit ticket ${t.title}`}>Edit</Button>{t.status === "in_progress" && <><Button size="sm" variant="ghost" disabled={busy} onClick={() => void openChatFor(t)} aria-label={`Open chat for ${t.title}`}><MessageSquareIcon />Open chat</Button><Button size="sm" variant="ghost" disabled={busy || !t.reviewSpaceId} onClick={() => void review([], t)} aria-label={`Open review space for ${t.title}`}><GitPullRequestIcon />Review<ArrowUpRightIcon /></Button><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, true)} aria-label={`Preview ${t.title}`}><MonitorIcon />Preview</Button></>}<Button size="sm" variant="ghost" className="ml-auto" disabled={busy || !!(t.run && ["starting", "running", "interrupting"].includes(t.run.state))} onClick={() => setDeleting(t)} aria-label={`Delete ticket ${t.title}`}><Trash2Icon />Delete</Button></div>
                 </article>]));
 
   return <div className="gantry-workspace flex h-full min-h-0 flex-col bg-background">
@@ -233,9 +251,8 @@ export function GantryWorkspace() {
           const owner = tickets.find(ticket => ticket.id === entry.id);
           const active = area === "previews" && activePreview.id === entry.id;
           return <div key={`${project.id}:${entry.id}`} className={active ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
-            <PreviewPane active={active} name={entry.name} preview={entry.preview} refresh={refresh} openingChat={busy}
-              onOpenChat={owner ? () => void act(() => openTicketChat(owner.id)) : undefined}
-              onReview={owner ? () => void review([], owner) : undefined} reviewDisabled={busy || !owner?.reviewSpaceId} />
+            <TicketPreview active={active} name={entry.name} preview={entry.preview} refresh={refresh} openingChat={busy}
+              owner={owner} onChat={openChatFor} onTicketReview={review} reviewDisabled={busy || !owner?.reviewSpaceId} />
           </div>;
         })}
         {project && area === "tickets" && <div className="min-h-0 flex-1">
@@ -302,7 +319,7 @@ function TicketDetail({ ticket: t, project, busy, act, onReview, onLog, onDelete
       <label className="flex items-center gap-3 text-sm">Stage<select className={selectClass} value={t.status} disabled={busy} onChange={(e) => void onStage(e.target.value)}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{t.description || "No notes added."}</p>
     </div>
-    {t.status === "in_progress" && <section className="space-y-3 border-t pt-5"><TicketConversation ticketId={t.id} done={false} />
+    {t.status === "in_progress" && <section className="space-y-3 border-t pt-5">{t.execution ? <p className="text-sm text-muted-foreground">Each workflow stage has its own conversation. Select a stage below to see its history. Pause automation before opening a stage chat for manual work.</p> : <TicketConversation ticketId={t.id} done={false} />}
       <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy || !!running} onClick={() => void act(() => ticketChatRequest(t.id, "prepare"), "Ticket worktrees are ready")}>Create worktrees</Button></div>
       {t.run && <div className="flex flex-wrap items-center gap-2"><State value={t.run.state} /><Button size="sm" variant="ghost" disabled={busy} onClick={() => void onLog("Previous agent output", t.run!.logUrl)}>View previous output</Button>{running && <Button variant="outline" disabled={busy} onClick={() => void act(() => gantry.handoffTicket(t.id), "Previous agent stopped. You can continue in Chat.")}>Take over</Button>}</div>}
     </section>}

@@ -133,19 +133,19 @@ function claudeSessionExists(id: string) {
   try { return fs.readdirSync(projects, { withFileTypes: true }).some(d => d.isDirectory() && fs.existsSync(path.join(projects, d.name, `${id}.jsonl`))); }
   catch { return false; }
 }
-async function launch(record: TicketConversation) {
+async function launch(record: TicketConversation, persist = true) {
   if (record.provider === "codex" && !record.promptPrefilled) {
     // The native app consumes the durable queue when it opens the thread.
     // Persist before launching: a failed app launch must not queue a duplicate.
     await exec(CLI.codex, ["queue", "--thread", record.sessionId, "--message", record.context], { cwd: record.cwd, timeout: 20000 });
     record.promptPrefilled = true;
-    save(record);
+    if (persist) save(record);
   }
   if (record.provider === "codex" && process.platform === "darwin") {
     const url = new URL(`codex://threads/${record.sessionId}`);
     await exec("open", [url.toString()], { timeout: 15000 });
     record.promptPrefilled = true;
-    save(record);
+    if (persist) save(record);
     return;
   }
   const args = record.provider === "claude"
@@ -186,11 +186,13 @@ async function launch(record: TicketConversation) {
     child.unref();
   } else throw httpError(409, "External conversations are not supported on this platform.");
   record.promptPrefilled = true;
-  save(record);
+  if (persist) save(record);
 }
 
 export async function openTicketConversation(ticketId: string) {
   return withLock(`ticket-conversation:${ticketId}`, async () => {
+    const { executionFor } = await import('./workflow-executor');
+    if (executionFor(ticketId)) throw httpError(409, 'This ticket uses workflow agents. Open its graph and choose a stage chat. Pause automation before working manually.');
     let record = conversationFor(ticketId);
     // Resolve the ticket even on resume; deleted tickets must not launch a stale record.
     const existing = await ticketContext(ticketId);
@@ -229,4 +231,15 @@ export function publicConversation(record: TicketConversation | null) {
   if (!record) return null;
   const { ticketId, provider, providerName, sessionId, branch, createdAt } = record;
   return { ticketId, provider, providerName, sessionId, branch, createdAt };
+}
+
+/** Open an existing stage session without replacing the ticket's original chat association. */
+export async function openWorkflowConversation(work: TicketWorkspace, attempt: {sessionId?:string;providerKind:string;providerId:string;model:string}) {
+  if (!attempt.sessionId || !/^[\w-]+$/.test(attempt.sessionId) || !['codex','claude'].includes(attempt.providerKind)) throw httpError(409, 'Read this API stage in its history panel.');
+  const cwd=work.checkouts[0]?.path;
+  if (!cwd) throw httpError(409,'This ticket has no worktrees.');
+  const record:TicketConversation={ticketId:work.ticket.id,agentId:attempt.providerId,provider:attempt.providerKind as 'codex'|'claude',providerName:attempt.providerKind,model:attempt.model,sessionId:attempt.sessionId,cwd,branch:work.ticket.branch,checkouts:work.checkouts,context:'Continue the existing Gantry stage. Automation is paused for manual work.',promptPrefilled:true,createdAt:Date.now()};
+  if(record.provider==='claude' && !claudeSessionExists(record.sessionId)) throw httpError(409,'This stage conversation is no longer available. Its output remains in stage history.');
+  await launch(record,false);
+  return {conversation:publicConversation(record)};
 }

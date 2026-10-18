@@ -1,6 +1,6 @@
-import "server-only";
-import { CLI } from "./store";
-import { cliOutcome, runCli, transcript, type Driver } from "./driver";
+import 'server-only';
+import { CLI } from './store';
+import { cliOutcome, runCli, transcript, type Driver } from './driver';
 
 /** The parts of `codex exec --json` lines we read. */
 interface CodexLine {
@@ -19,27 +19,28 @@ interface CodexLine {
   };
 }
 
-export const codex: Driver = async ({ agent, cwd, system, prompt, sessionId, history, hooks, signal }) => {
+export const codex: Driver = async ({ agent, cwd, system, prompt, sessionId, history, hooks, signal, workflow }) => {
   // Allow edits inside the review workspace,
   // and none of your ~/.codex config, so no MCP servers, profiles or execpolicy rules.
   // Login still comes from ~/.codex.
-  const args = [
-    "exec", "--json",
-    "--ignore-user-config", "--ignore-rules",
-    "--skip-git-repo-check",
-    "--sandbox", "workspace-write",
-  ];
-  if (agent.model) args.push("--model", agent.model);
+  const args = workflow
+    ? ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check']
+    : ['exec', '--json', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--sandbox', 'workspace-write'];
+  if (workflow?.reasoningEffort) args.push('-c', `model_reasoning_effort=${JSON.stringify(workflow.reasoningEffort)}`);
+  if (agent.model) args.push('--model', agent.model);
   // Codex has no flag for extra system instructions, so a new session gets them up front.
-  if (sessionId) args.push("resume", sessionId, "-");
-  else args.push("-");
+  if (sessionId) args.push('resume', sessionId, '-');
+  else args.push('-');
   const stdin = sessionId ? `${system}\n\n${prompt}` : `${system}\n\n${transcript(history)}${prompt}`;
 
   let wrote = false;
   let failed = false;
-  let lastError = "";
+  let lastError = '';
   const r = await runCli(CLI.codex, args, {
-    cwd, signal, stdin,
+    cwd,
+    signal,
+    processGroup: !!workflow,
+    stdin,
     onLine(line) {
       let ev: CodexLine;
       try {
@@ -47,23 +48,23 @@ export const codex: Driver = async ({ agent, cwd, system, prompt, sessionId, his
       } catch {
         return;
       }
-      if (ev.type === "thread.started" && ev.thread_id) hooks.session(ev.thread_id);
-      else if (ev.type === "item.started" || ev.type === "item.completed") {
+      if (ev.type === 'thread.started' && ev.thread_id) hooks.session(ev.thread_id);
+      else if (ev.type === 'item.started' || ev.type === 'item.completed') {
         const it = ev.item ?? {};
-        if (ev.type === "item.completed" && it.type === "agent_message" && it.text) {
-          hooks.text((wrote ? "\n\n" : "") + it.text);
+        if (ev.type === 'item.completed' && it.type === 'agent_message' && it.text) {
+          hooks.text((wrote ? '\n\n' : '') + it.text);
           wrote = true;
-        } else if (ev.type === "item.started" && it.type === "command_execution") {
-          hooks.tool({ name: "shell", detail: it.command ?? "" });
-        } else if (ev.type === "item.started" && it.type === "mcp_tool_call") {
-          hooks.tool({ name: `${it.server}.${it.tool}`, detail: "" });
-        } else if (ev.type === "item.started" && it.type === "web_search") {
-          hooks.tool({ name: "web search", detail: it.query ?? "" });
+        } else if (ev.type === 'item.started' && it.type === 'command_execution') {
+          hooks.tool({ name: 'shell', detail: it.command ?? '' });
+        } else if (ev.type === 'item.started' && it.type === 'mcp_tool_call') {
+          hooks.tool({ name: `${it.server}.${it.tool}`, detail: '' });
+        } else if (ev.type === 'item.started' && it.type === 'web_search') {
+          hooks.tool({ name: 'web search', detail: it.query ?? '' });
         }
-      } else if (ev.type === "turn.failed") {
+      } else if (ev.type === 'turn.failed') {
         failed = true;
-        hooks.error(ev.error?.message || "Codex stopped.");
-      } else if (ev.type === "error" && ev.message) {
+        hooks.error(ev.error?.message || 'Codex stopped.');
+      } else if (ev.type === 'error' && ev.message) {
         lastError = ev.message;
       }
     },
@@ -72,5 +73,5 @@ export const codex: Driver = async ({ agent, cwd, system, prompt, sessionId, his
     failed = true;
     hooks.error(lastError);
   }
-  cliOutcome("Codex", CLI.codex, r, hooks, failed);
+  cliOutcome('Codex', CLI.codex, r, hooks, failed);
 };

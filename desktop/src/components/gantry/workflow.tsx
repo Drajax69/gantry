@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { gantry, type Workflow, type WorkflowRun, type TicketView, type ProjectView } from '@/lib/client/gantry';
+import { ExecutionControls } from './workflow-execution';
+import { useAgents } from '@/lib/client/agents';
 import { WorkspacePromptDialog } from './workspace-prompt-dialog';
 
 const stateLabel = { pending: 'Not started', running: 'In progress', waiting: 'Waiting on you', done: 'Complete', failed: 'Failed' };
@@ -12,9 +14,9 @@ export function graphSummary(run?: WorkflowRun | null) {
   if (!run) return null;
   const ready = run.graph.nodes.filter((n) => run.states[n.id]?.state === 'pending' && n.dependsOn.every((id) => run.states[id]?.state === 'done'));
   const active = run.graph.nodes.filter((n) => ['running', 'waiting', 'failed'].includes(run.states[n.id]?.state));
-  const waiting = active.some((n) => run.states[n.id]?.state === 'waiting') || ready.some((n) => n.kind === 'human');
+  const waiting = active.some((n) => ['waiting', 'failed'].includes(run.states[n.id]?.state)) || ready.some((n) => n.kind === 'human');
   const current = waiting
-    ? run.graph.nodes.filter((n) => run.states[n.id]?.state === 'waiting' || (n.kind === 'human' && ready.some((r) => r.id === n.id)))
+    ? run.graph.nodes.filter((n) => ['waiting', 'failed'].includes(run.states[n.id]?.state) || (n.kind === 'human' && ready.some((r) => r.id === n.id)))
     : active.length
       ? active
       : ready;
@@ -122,6 +124,7 @@ function GraphEditor({
   onSave: (graph: Workflow, revision: number) => Promise<void>;
   onCancel: () => void;
 }) {
+  const agents = useAgents();
   const [graph, setGraph] = useState<Workflow>(() => structuredClone(initial));
   const [revision] = useState(run?.revision ?? -1);
   const [selected, setSelected] = useState(initial.nodes[0]?.id ?? '');
@@ -130,9 +133,25 @@ function GraphEditor({
   const node = graph.nodes.find((n) => n.id === selected);
   const locked = !!run && run.states[selected]?.state !== undefined && run.states[selected]?.state !== 'pending';
   const update = (values: Partial<Workflow['nodes'][number]>) =>
-    setGraph((g) => ({ nodes: g.nodes.map((n) => (n.id === selected ? { ...n, ...values } : n)) }));
+    setGraph((g) => ({ ...g, nodes: g.nodes.map((n) => (n.id === selected ? { ...n, ...values } : n)) }));
   return (
     <div className="space-y-4">
+      {!run && (
+        <label className="flex items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={graph.autoStart ?? false}
+            onChange={(e) => setGraph((g) => ({ ...g, autoStart: e.target.checked }))}
+          />
+          <span>
+            Automatically run new tickets moved into In progress
+            <span className="mt-1 block text-xs text-muted-foreground">
+              Agents execute local tools without routine approvals. Configure each stage before enabling. Existing tickets keep their own graph.
+            </span>
+          </span>
+        </label>
+      )}
       <Graph graph={graph} run={run} selected={selected} onSelect={setSelected} />
       <div className="flex flex-wrap items-center gap-3">
         <Button
@@ -141,14 +160,14 @@ function GraphEditor({
           disabled={busy || graph.nodes.length >= 50}
           onClick={() => {
             const id = `step-${crypto.randomUUID().slice(0, 8)}`;
-            setGraph((g) => ({ nodes: [...g.nodes, { id, label: 'New step', kind: 'agent', instructions: '', dependsOn: selected ? [selected] : [] }] }));
+            setGraph((g) => ({ ...g, nodes: [...g.nodes, { id, label: 'New step', kind: 'agent', instructions: '', dependsOn: selected ? [selected] : [] }] }));
             setSelected(id);
           }}
         >
           <PlusIcon />
           Add step
         </Button>
-        <span className="text-xs text-muted-foreground">Steps with the same dependencies can run in parallel.</span>
+        <span className="text-xs text-muted-foreground">All dependencies must finish first. Automatic stages run one at a time within each ticket.</span>
       </div>
       {node && (
         <fieldset disabled={locked || busy} className="space-y-3 rounded-lg border p-4">
@@ -173,6 +192,87 @@ function GraphEditor({
             Instructions
             <Textarea value={node.instructions} maxLength={10000} onChange={(e) => update({ instructions: e.target.value })} />
           </label>
+          {node.kind === 'agent' && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                Provider
+                <select
+                  aria-label="Stage provider"
+                  className="block w-full rounded-md border bg-background p-2"
+                  value={node.providerId || ''}
+                  onChange={(e) => update({ providerId: e.target.value || undefined })}
+                >
+                  <option value="">Default provider</option>
+                  {agents?.agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1 text-sm">
+                Model
+                <Input
+                  aria-label="Stage model"
+                  placeholder="Provider default"
+                  value={node.model || ''}
+                  onChange={(e) => update({ model: e.target.value || undefined })}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                Reasoning effort
+                <select
+                  aria-label="Reasoning effort"
+                  className="block w-full rounded-md border bg-background p-2"
+                  value={node.reasoningEffort || ''}
+                  onChange={(e) => update({ reasoningEffort: (e.target.value || undefined) as typeof node.reasoningEffort })}
+                >
+                  <option value="">Provider default</option>
+                  {['low', 'medium', 'high', 'xhigh'].map((v) => (
+                    <option key={v}>{v}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1 text-sm">
+                Attempt limit
+                <Input
+                  aria-label="Attempt limit"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={node.maxAttempts ?? 3}
+                  onChange={(e) => update({ maxAttempts: Math.max(1, Math.min(10, Number(e.target.value) || 1)) })}
+                />
+              </label>
+              <label className="space-y-1 text-sm sm:col-span-2">
+                When changes are needed
+                <select
+                  aria-label="Correction target"
+                  className="block w-full rounded-md border bg-background p-2"
+                  value={node.retryTarget || ''}
+                  onChange={(e) => update({ retryTarget: e.target.value || undefined })}
+                >
+                  <option value="">Pause and notify me</option>
+                  {graph.nodes
+                    .filter((n) => n.id !== node.id)
+                    .map((n) => (
+                      <option key={n.id} value={n.id}>
+                        Return to {n.label}
+                      </option>
+                    ))}
+                </select>
+                <span className="block text-xs text-muted-foreground">Choose an earlier dependency. Its downstream stages will run again.</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={node.freshSession ?? false} onChange={(e) => update({ freshSession: e.target.checked })} />
+                Fresh chat on each attempt
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={node.workspaceExclusive ?? false} onChange={(e) => update({ workspaceExclusive: e.target.checked })} />
+                Serialize across workspace (merges)
+              </label>
+            </div>
+          )}
           <fieldset className="space-y-2">
             <legend className="mb-2 text-sm">Start after</legend>
             <div className="flex flex-wrap gap-3">
@@ -197,7 +297,14 @@ function GraphEditor({
             disabled={graph.nodes.length === 1 || !!run?.graph.nodes.some((n) => n.dependsOn.includes(node.id) && run.states[n.id]?.state !== 'pending')}
             onClick={() => {
               setGraph((g) => ({
-                nodes: g.nodes.filter((n) => n.id !== node.id).map((n) => ({ ...n, dependsOn: n.dependsOn.filter((id) => id !== node.id) })),
+                ...g,
+                nodes: g.nodes
+                  .filter((n) => n.id !== node.id)
+                  .map((n) => ({
+                    ...n,
+                    dependsOn: n.dependsOn.filter((id) => id !== node.id),
+                    retryTarget: n.retryTarget === node.id ? undefined : n.retryTarget,
+                  })),
               }));
               setSelected(graph.nodes.find((n) => n.id !== node.id)!.id);
             }}
@@ -361,13 +468,14 @@ export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refres
       <div className="flex items-center gap-2">
         <GitBranchIcon className="size-4" />
         <h3 className="flex-1 font-medium">Ticket graph</h3>
-        <Button size="sm" variant="outline" disabled={ticket.status === 'done'} onClick={() => setEditing(!editing)}>
+        <Button size="sm" variant="outline" disabled={ticket.status === 'done' || !!ticket.execution} onClick={() => setEditing(!editing)}>
           {editing ? 'View progress' : 'Edit graph'}
         </Button>
       </div>
       <p role="status" className={`text-sm ${graphSummary(run)?.waiting ? 'font-medium text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}`}>
         {graphSummary(run)?.text}
       </p>
+      <ExecutionControls ticket={ticket} selected={selected} refresh={refresh} />
       {editing ? (
         <GraphEditor
           initial={run.graph}
@@ -405,7 +513,7 @@ export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refres
                     .join(', ')}
                 </p>
               )}
-              {ready && state?.state !== 'done' && ticket.status !== 'done' && (
+              {!ticket.execution && ready && state?.state !== 'done' && ticket.status !== 'done' && (
                 <>
                   <label className="block space-y-1 text-sm">
                     Update or question
