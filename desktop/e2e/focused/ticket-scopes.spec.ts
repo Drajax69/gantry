@@ -1,5 +1,54 @@
 import { test, expect } from '@playwright/test';
 
+for (const refreshedScopes of [['api'], []]) {
+  test(`title-only edits preserve refreshed scopes ${JSON.stringify(refreshedScopes)}`, async ({ page }) => {
+    const project = {
+      id: 'scopes', name: 'TEST_scope_refresh', branchPrefix: 'ticket',
+      scopes: [], agents: [], repositories: [],
+      services: [{ id: 'web', repository: 'app' }, { id: 'api', repository: 'app' }],
+    };
+    const ticket = {
+      id: 'scope-ticket', projectId: project.id, title: 'TEST_original_scope',
+      description: '', scope: 'both', scopes: ['web'], status: 'backlog',
+      branch: 'ticket/scope', run: null, pullRequests: [], artifacts: [],
+    };
+    const writes: Record<string, unknown>[] = [];
+
+    await page.route('**/api/**', async (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      if (pathname === '/api/gantry/api/status') {
+        return route.fulfill({ json: { projects: [project], tickets: [ticket], previews: [], pulls: [], jobs: [] } });
+      }
+      if (pathname === '/api/agents') return route.fulfill({ json: { agents: [], current: null } });
+      if (pathname === '/api/spaces') return route.fulfill({ json: { spaces: [], current: null } });
+      if (pathname === '/api/gantry/api/tickets/scope-ticket/update') {
+        const input = route.request().postDataJSON();
+        writes.push(input);
+        Object.assign(ticket, input);
+        return route.fulfill({ json: ticket });
+      }
+      return route.fulfill({ status: 400, json: { error: 'Unmocked request blocked' } });
+    });
+
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Edit ticket TEST_original_scope', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('checkbox', { name: 'web', exact: true })).toBeChecked();
+
+    // Another window updates the ticket while this form remains mounted.
+    ticket.scopes = [...refreshedScopes];
+    ticket.title = 'TEST_refreshed_scope';
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(page.getByRole('button', { name: 'Edit ticket TEST_refreshed_scope', exact: true, includeHidden: true })).toHaveCount(1);
+
+    await dialog.getByLabel('Title', { exact: true }).fill('TEST_title_only_edit');
+    await dialog.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await expect.poll(() => writes.length).toBe(1);
+    expect(writes[0]).not.toHaveProperty('scopes');
+    expect(ticket.scopes).toEqual(refreshedScopes);
+  });
+}
+
 test('service scope checkboxes support create, edit, unavailable services and empty workspaces', async ({ page }, testInfo) => {
   const project = {
     id: 'scopes', name: 'TEST_service_scope_workspace', branchPrefix: 'ticket',

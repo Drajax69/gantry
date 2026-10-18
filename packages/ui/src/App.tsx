@@ -373,8 +373,7 @@ function TicketDialog({ project, ticket, onClose, run }: {
           <div className="actions">
             <button onClick={onClose}>Cancel</button>
             <button className="primary" disabled={!title.trim()} onClick={() => {
-              const originalScopes = ticket ? ticketServiceScopes(ticket, project.services) : [];
-              const scopeChanged = !ticket || scopesTouched || scopes.length !== originalScopes.length || scopes.some((id) => !originalScopes.includes(id));
+              const scopeChanged = !ticket || scopesTouched;
               const input = { title, description, ...(scopeChanged ? { scopes } : {}), branch, additions: additions || null };
               void run(() => (ticket ? api.updateTicket(ticket.id, input) : api.createTicket(project.id, input))).then((ok) => { if (ok) onClose(); });
             }}>

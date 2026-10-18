@@ -305,8 +305,8 @@ function TicketForm({ project, ticket, busy, onSave, onCancel }: { project: Proj
   const [scopes, setScopes] = useState(() => ticketServiceScopes(ticket ?? {}, project.services));
   const [scopesTouched, setScopesTouched] = useState(false);
   const scopeIds = [...new Set([...project.services.map((service) => service.id), ...(ticket?.scopes ?? [])])];
-  const originalScopes = ticket ? ticketServiceScopes(ticket, project.services) : [];
-  const scopeChanged = !ticket || scopesTouched || scopes.length !== originalScopes.length || scopes.some((id) => !originalScopes.includes(id));
+  // Refreshes can change ticket props without the user editing this selection.
+  const scopeChanged = !ticket || scopesTouched;
   return <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); void onSave({ title: title.trim(), description, ...(scopeChanged ? { scopes } : {}), ...(branch.trim() ? { branch: branch.trim() } : {}) }); }}>
     <h2 className="text-lg font-semibold">{ticket ? "Edit ticket" : "New ticket"}</h2>
     <label className="block space-y-2 text-sm">Title<Input autoFocus required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What needs to change?" /></label>
