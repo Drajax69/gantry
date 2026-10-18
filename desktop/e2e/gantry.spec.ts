@@ -33,6 +33,16 @@ test('Gantry ticket, preview and review workflow stays inside Gantry', async ({ 
   await page.getByRole('button',{name:'Open review space for Test the unified workspace',exact:true}).click();
   await expect(page).toHaveURL(/review=/);
   await expect(page.getByRole('tab',{name:'fixture #1',exact:true})).toBeVisible();
+  await page.evaluate(() => document.documentElement.classList.add('electron'));
+  const switcher = page.getByRole('button', { name: 'Switch space', exact: true });
+  const reviewHeader = page.getByRole('banner').filter({ has: switcher });
+  await expect(reviewHeader).toHaveCSS('padding-left', '12px');
+  await expect(switcher).toHaveCSS('width', '288px');
+  await switcher.click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toBeHidden();
+  await page.evaluate(() => document.documentElement.classList.remove('electron'));
   await expect(page.getByRole('banner').getByText('PR Lens',{exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Gantry',exact:true})).toHaveCount(0);
   await expect(page.getByText('Guard add against NaN').first()).toBeVisible();

@@ -42,7 +42,7 @@ export function SpaceSwitcher({ spaces, current, onSwitch, onCreate, onRename, o
   }
 
   return (
-    <div ref={root} className="relative">
+    <div ref={root} className="relative w-48 shrink-0 sm:w-72">
       <Button
         variant="outline"
         size="sm"
@@ -50,10 +50,10 @@ export function SpaceSwitcher({ spaces, current, onSwitch, onCreate, onRename, o
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Switch space"
-        className={cn("border-2", spaceStyle(current).cls.border, spaceStyle(current).cls.tint)}
+        className={cn("w-full justify-start border-2", spaceStyle(current).cls.border, spaceStyle(current).cls.tint)}
       >
         <span aria-hidden>{spaceStyle(current).emoji}</span>
-        <span className="max-w-40 truncate">{current.name}</span>
+        <span className="min-w-0 flex-1 truncate text-left">{current.name}</span>
         <ChevronsUpDownIcon />
       </Button>
       {open && (

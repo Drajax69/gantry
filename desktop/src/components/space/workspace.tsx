@@ -248,7 +248,7 @@ export function Workspace({ spaceId, initialTarget, initialFile, onNavigateSpace
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="app-bar flex h-12 shrink-0 items-center gap-2 border-b px-3">
+      <header className={cn("flex h-12 shrink-0 items-center gap-2 border-b px-3", !onNavigateSpace && "app-bar")}>
         {!onNavigateSpace && <BackToTickets projectId={space.gantry?.projectId} ticketId={space.gantry?.ticketId} />}
         <SpaceSwitcher spaces={data.spaces} current={space} onSwitch={switchTo} onCreate={create} onRename={rename} onDelete={remove} />
         <nav role="tablist" aria-label="Pull requests in this space" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
