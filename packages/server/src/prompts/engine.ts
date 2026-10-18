@@ -1,3 +1,4 @@
+import { ticketWorkflow } from '../tickets/workflow.js';
 import path from 'node:path';
 import { interpolate, VarError, BUILTIN_TEMPLATES, type ProjectConfig, type PromptLayer } from '@gantry/shared';
 import type { LoadedProject } from '../projects/registry.js';
@@ -25,6 +26,8 @@ export interface PromptContext {
   agentNotes: string;
   /** Extra text requested for this specific ticket. */
   ticketAdditions?: string | null;
+  /** Local control-plane port for graph progress reporting. */
+  workflowPort?: number;
 }
 
 export function templateBody(config: ProjectConfig, templateId: string, seen = new Set<string>()): { body: string; label: string; chain: string[] } {
@@ -118,6 +121,12 @@ export function renderPrompt(project: LoadedProject, ticket: TicketRow, vars: Re
   if (context.ticketAdditions?.trim()) {
     layers.push({ kind: 'ticket-additions' });
     sections.push(`Additional notes for this ticket:\n${context.ticketAdditions.trim()}`);
+  }
+  const workflow = ticketWorkflow(ticket);
+  if (workflow) {
+    sections.push(`Ticket workflow (this ticket's independent graph):\n${workflow.graph.nodes.map(node =>
+      `- ${node.id}: ${node.label} [${node.kind}; ${workflow.states[node.id]?.state ?? 'pending'}], after: ${node.dependsOn.join(', ') || 'start'}\n  ${node.instructions}`
+    ).join('\n')}\nFollow dependency order. Independent ready agent steps may be delegated in parallel; wait for all dependencies before a join. Human steps require a user response before completion. Report progress using the local Gantry CLI: gantry workflow ${ticket.id} <step-id> <running|waiting|done|failed> --port ${context.workflowPort ?? 4500} --message "details". If the CLI is not installed, GET http://127.0.0.1:${context.workflowPort ?? 4500}/api/tickets/${ticket.id}/workflow, then POST JSON to http://127.0.0.1:${context.workflowPort ?? 4500}/api/tickets/${ticket.id}/workflow-progress with revision (from the GET), nodeId, state, and message. On HTTP 409, reload the current revision and retry. Use waiting with a clear question when blocked on the user. Never mark work complete until verified. If reporting is unavailable, tell the user rather than claiming the graph was updated.`);
   }
   return { prompt: sections.join('\n\n'), layers, templateLabel: template.label };
 }

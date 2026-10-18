@@ -1,3 +1,5 @@
+import type { Workflow, WorkflowRun, StepState } from "../../../../packages/shared/src/workflow";
+export type { Workflow, WorkflowRun, StepState };
 // Typed client for the Gantry HTTP API.
 // Shapes mirror packages/server/src/status.ts and packages/shared/src/ticket.ts.
 
@@ -33,6 +35,7 @@ export interface TicketRunView {
 
 export interface TicketView {
   reviewSpaceId?: string;
+  workflow?: WorkflowRun | null;
   id: string;
   projectId: string;
   title: string;
@@ -152,6 +155,10 @@ async function request<T>(route: string, method: string, body?: unknown): Promis
 }
 
 export const gantry = {
+  workspaceWorkflow: (id: string): Promise<Workflow> => request(`/api/projects/${id}/workflow`, 'GET'),
+  saveWorkspaceWorkflow: (id: string, graph: Workflow): Promise<Workflow> => request(`/api/projects/${id}/workflow`, 'POST', graph),
+  saveTicketWorkflow: (id: string, graph: Workflow, revision: number): Promise<WorkflowRun> => request(`/api/tickets/${id}/workflow`, 'POST', { graph, revision }),
+  stepProgress: (id: string, nodeId: string, state: StepState, message: string, revision: number): Promise<WorkflowRun> => request(`/api/tickets/${id}/workflow-progress`, 'POST', { nodeId, state, message, revision }),
   workspacePrompt: (id: string): Promise<{ prompt: string }> => request(`/api/projects/${id}/chat-prompt`, 'GET'),
   saveWorkspacePrompt: (id: string, prompt: string): Promise<{ prompt: string }> => request(`/api/projects/${id}/chat-prompt`, 'POST', { prompt }),
   status: (): Promise<StatusView> => request('/api/status', 'GET'),

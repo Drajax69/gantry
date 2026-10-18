@@ -1,3 +1,4 @@
+import { ticketWorkflow } from './tickets/workflow.js';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { redactEnv } from '@gantry/shared';
@@ -148,6 +149,7 @@ export async function buildStatus(app: GantryApp): Promise<Record<string, unknow
         scope: ticket.scope,
         branch: ticket.branch,
         additions: ticket.additions,
+        workflow: ticketWorkflow(ticket),
         position: ticket.position,
         createdAt: ticket.created_at,
         updatedAt: ticket.updated_at,

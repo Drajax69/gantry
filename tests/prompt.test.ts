@@ -217,3 +217,19 @@ describe('repositoryPath', () => {
     assert.equal(repositoryPath(project(), 'missing'), '/tmp/gantry-fixture-workspace');
   });
 });
+
+test('ticket graph instructions use the snapshot and include progress reporting', async () => {
+  const { newWorkflow } = await import('../packages/shared/src/workflow.js');
+  const proj = project();
+  proj.config.project.defaultPromptTemplate = 'builtin:default';
+  const workflow = newWorkflow();
+  workflow.graph.nodes[0]!.label = 'Ticket-specific plan';
+  const owner = ticket({ workflow_json: JSON.stringify(workflow) });
+  const vars = buildPromptVars(proj, owner, { artifactDir: '/art', previewUrl: null, urls: {}, paths: {} });
+  const result = renderPrompt(proj, owner, vars, { ticket: owner, project: proj, instructionFiles: [], agentNotes: '', workflowPort: 4598 });
+  assert.match(result.prompt, /Ticket-specific plan/);
+  assert.match(result.prompt, /after: plan/);
+  assert.match(result.prompt, /gantry workflow 00000000-0000-4000-8000-000000000001/);
+  assert.match(result.prompt, /delegated in parallel/);
+  assert.match(result.prompt, /http:\/\/127.0.0.1:4598\/api\/tickets\//);
+});

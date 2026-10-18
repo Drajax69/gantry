@@ -28,6 +28,7 @@ export interface TicketView {
   position: number;
   createdAt: string;
   updatedAt: string;
+  workflow?: import('./workflow.js').WorkflowRun | null;
   additions: string | null;
   run: TicketRunView | null;
   previewUrl: string | null;

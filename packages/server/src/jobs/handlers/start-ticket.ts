@@ -110,6 +110,7 @@ export function createStartTicketHandler(deps: {
       const prompt =
         payload.prompt ??
         renderPrompt(project, ticket, vars, {
+          workflowPort: deps.ctx.settings.port,
           ticket,
           project,
           instructionFiles: await findInstructionFiles(project),

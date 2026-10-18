@@ -5,16 +5,17 @@ import type { StatusView } from "@/lib/client/gantry";
 
 type Context = { params: Promise<{ path: string[] }> };
 const reads = [
-  /^api\/projects\/[\w-]+\/chat-prompt$/,
+  /^api\/projects\/[\w-]+\/(chat-prompt|workflow)$/,
+  /^api\/tickets\/[\w-]+\/workflow$/,
   /^api\/(status|version)$/,
   /^logs\/(run\/[\w-]+|preview\/[\w-]+\/[\w-]+)$/,
   /^artifacts\/[\w-]+\/[\w.-]+$/,
 ];
 const writes = [
   /^api\/projects$/,
-  /^api\/projects\/[\w-]+\/(refresh|tickets|chat-prompt)$/,
+  /^api\/projects\/[\w-]+\/(refresh|tickets|chat-prompt|workflow)$/,
   /^api\/projects\/[\w-]+\/tickets\/reorder$/,
-  /^api\/tickets\/[\w-]+\/(update|delete|prompt|start|handoff|resume)$/,
+  /^api\/tickets\/[\w-]+\/(update|delete|prompt|start|handoff|resume|workflow|workflow-progress)$/,
   /^api\/previews\/[\w-]+\/(pause|resume|restart|retry-dependencies|archive|restore|environment)$/,
 ];
 

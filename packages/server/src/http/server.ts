@@ -1,3 +1,6 @@
+import { ZodError } from 'zod';
+import { workspaceWorkflow, saveWorkspaceWorkflow } from '../projects/workflow.js';
+import { ticketWorkflow, changeStep, replaceGraph, saveTicketWorkflow } from '../tickets/workflow.js';
 import { workspacePrompt, saveWorkspacePrompt } from '../projects/prompt.js';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -39,7 +42,7 @@ export async function createHttpServer(app: GantryApp) {
   });
   fastify.setErrorHandler((error, _request, reply) => {
     const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
-    reply.code(statusCode === 404 ? 404 : 400).send({ error: (error as Error).message });
+    reply.code([404, 409].includes(statusCode) ? statusCode : 400).send({ error: error instanceof ZodError ? error.issues.map(issue => issue.message).join(' ') : (error as Error).message });
   });
 
   // ---- static dashboard ----------------------------------------------------
@@ -87,6 +90,31 @@ export async function createHttpServer(app: GantryApp) {
     return saveWorkspacePrompt(await app.loadProjectById((request.params as { projectId: string }).projectId), (request.body as { prompt?: unknown })?.prompt);
   });
 
+  fastify.get('/api/projects/:projectId/workflow', async request => {
+    return workspaceWorkflow(await app.loadProjectById((request.params as { projectId: string }).projectId));
+  });
+  fastify.post('/api/projects/:projectId/workflow', async request => {
+    return saveWorkspaceWorkflow(await app.loadProjectById((request.params as { projectId: string }).projectId), request.body);
+  });
+  fastify.get('/api/tickets/:ticketId/workflow', async request => {
+    const ticket = app.tickets.get((request.params as { ticketId: string }).ticketId);
+    if (!ticket) throw Object.assign(new Error('Ticket not found.'), { statusCode: 404 });
+    return ticketWorkflow(ticket);
+  });
+  for (const action of ['workflow', 'workflow-progress'] as const) {
+    fastify.post(`/api/tickets/:ticketId/${action}`, async request => {
+      const ticket = app.tickets.get((request.params as { ticketId: string }).ticketId);
+      if (!ticket) throw Object.assign(new Error('Ticket not found.'), { statusCode: 404 });
+      const current = ticketWorkflow(ticket);
+      const body = request.body as { graph?: unknown; revision?: number };
+      if (!body || body.revision !== (current?.revision ?? -1)) throw Object.assign(new Error('Graph changed. Reload and try again.'), { statusCode: 409 });
+      if (ticket.status === 'done') throw new Error('Reopen this ticket before changing its graph.');
+      if (action === 'workflow-progress' && !current) throw new Error('Add a ticket graph first.');
+      const next = action === 'workflow' ? replaceGraph(current, body.graph) : changeStep(current!, body);
+      return saveTicketWorkflow(app.db, ticket, next);
+    });
+  }
+
   // ---- prompt preview ------------------------------------------------------
   fastify.post('/api/projects/:projectId/prompt-preview', async (request) => {
     const { projectId } = request.params as { projectId: string };
@@ -116,6 +144,7 @@ export async function createHttpServer(app: GantryApp) {
       paths: Object.fromEntries(project.config.services.map((service) => [service.id, repositoryPath(project, service.repository)])),
     });
     const rendered = renderPrompt(project, ticket, vars, {
+      workflowPort: app.ctx.settings.port,
       ticket,
       project,
       instructionFiles: await findInstructionFiles(project),
@@ -129,7 +158,7 @@ export async function createHttpServer(app: GantryApp) {
   fastify.post('/api/projects/:projectId/tickets', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
     const project = await app.loadProjectById(projectId);
-    const ticket = app.tickets.create(projectId, request.body as unknown as TicketInput, project.config.scopes.map((scope) => scope.id), project.config.project.branchPrefix);
+    const ticket = app.tickets.create(projectId, request.body as unknown as TicketInput, project.config.scopes.map((scope) => scope.id), project.config.project.branchPrefix, workspaceWorkflow(project));
     return reply.code(201).send(ticket);
   });
 
@@ -171,6 +200,7 @@ export async function createHttpServer(app: GantryApp) {
       paths: Object.fromEntries(project.config.services.map((service) => [service.id, repositoryPath(project, service.repository)])),
     });
     const rendered = renderPrompt(project, ticket, vars, {
+      workflowPort: app.ctx.settings.port,
       ticket,
       project,
       instructionFiles: await findInstructionFiles(project),

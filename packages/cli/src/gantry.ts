@@ -47,6 +47,7 @@ Usage:
   gantry import-legacy <workspace>      Import the legacy preview manager's state
       --state-dir <dir>                 Legacy state directory (default: <workspace>/.local/previews)
       --dry-run                         Validate and report without writing
+  gantry workflow <ticket> [step state] Report graph progress (--message details)
   gantry status [branch]                Print status from a running dashboard
   gantry open [branch]                  Open the dashboard (or a preview) in a browser
   gantry help                           Show this help
@@ -116,14 +117,15 @@ async function cmdImportLegacy(workspace: string, flags: Args['flags']): Promise
   }
 }
 
-async function api(port: number, route: string, method: 'GET' | 'POST' = 'GET'): Promise<unknown> {
+async function api(port: number, route: string, method: 'GET' | 'POST' = 'GET', input?: unknown): Promise<unknown> {
   const response = await fetch(`http://127.0.0.1:${port}${route}`, {
     method,
     headers: { Origin: `http://127.0.0.1:${port}`, 'Content-Type': 'application/json' },
+    body: input === undefined ? undefined : JSON.stringify(input),
     signal: AbortSignal.timeout(5000),
   });
   const body = (await response.json()) as { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
+  if (!response.ok) throw Object.assign(new Error(body.error ?? `Request failed (${response.status})`), { statusCode: response.status });
   return body;
 }
 
@@ -170,6 +172,24 @@ async function main(): Promise<void> {
         if (!argument) throw new Error('Usage: gantry import-legacy <workspace> --state-dir <dir>');
         await cmdImportLegacy(argument, flags);
         break;
+      case 'workflow': {
+        const port = Number(flags['port'] ?? process.env.GANTRY_PORT ?? 4500);
+        const [, ticketId, nodeId, state] = positional;
+        if (!ticketId || !/^[\w-]+$/.test(ticketId)) throw new Error('Provide a ticket ID.');
+        const route = `/api/tickets/${ticketId}/workflow`;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const current = await api(port, route) as { revision: number } | null;
+          if (!nodeId) { console.log(JSON.stringify(current, null, 2)); break; }
+          if (!current) throw new Error('This ticket has no graph.');
+          try {
+            console.log(JSON.stringify(await api(port, `${route}-progress`, 'POST', { nodeId, state, revision: current.revision, message: flags['message'] || '' }), null, 2));
+            break;
+          } catch (error) {
+            if ((error as { statusCode?: number }).statusCode !== 409 || attempt === 4) throw error;
+          }
+        }
+        break;
+      }
       case 'status':
         await cmdStatus(argument, Number(flags['port'] ?? 4500));
         break;
