@@ -22,6 +22,7 @@ export interface HomeData {
 }
 
 export const api = {
+  merge: (id: string, head: string, method: string) => call<{ merged: boolean; warning: string | null }>("/api/merge", post({ id, head, method })),
   home: () => call<HomeData>("/api/home"),
   resolve: (url: string) => call<{ id: string; file: string | null }>("/api/resolve", post({ url })),
   target: (id: string, refresh = false) =>

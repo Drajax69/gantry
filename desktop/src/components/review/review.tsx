@@ -21,6 +21,7 @@ import { FileList } from "./file-list";
 import { FileView, type Focus } from "./file-view";
 import { ChatPanel, type ChatPanelHandle } from "./chat-panel";
 
+import { MergeDialog } from "./merge-dialog";
 import { PublishDialog } from "./publish-dialog";
 
 type Mode = "diff" | "full";
@@ -47,6 +48,7 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
   const [source, setSource] = useState<"pr" | "local">("pr");
   const [local, setLocal] = useState<LocalChanges | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [merging, setMerging] = useState(false);
   const [publishing, setPublishing] = useState<LocalChanges | null>(null);
   const [answers, setAnswers] = useState(0);
   const localRevision = useRef<string | null>(null);
@@ -390,8 +392,15 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
           <Button size="sm" variant={source === "local" ? "secondary" : "ghost"} aria-pressed={source === "local"} onClick={() => { setSource("local"); setCurrent(local?.files[0]?.path ?? null); setFiles({}); setFileError({}); setAllFiles(null); }}>Local changes{local ? ` (${local.files.length})` : ""}</Button>
         </div>
         <p className="min-w-0 flex-1 text-xs text-muted-foreground">{localError || (source === "local" ? local?.files.length || local?.commits ? "Edits and commits not yet on this PR." : "No local changes waiting to be published." : "Changes published on GitHub.")}</p>
+        {isPull && t.prState === "open" && <Button size="sm" variant="outline" disabled={!local || !!local.files.length || !!local.commits || !!pending || !!queued.length || !!localError || refreshing} onClick={() => setMerging(true)}>Merge PR</Button>}
         {isPull && <Button size="sm" disabled={!local || (!local.files.length && !local.commits) || !!pending || !!queued.length || !!localError} onClick={() => setPublishing(local)}>Commit and push</Button>}
       </div>
+      {merging && <MergeDialog id={id} head={t.headSha} title={t.title} onClose={() => setMerging(false)} onMerged={(warning) => {
+        setMerging(false);
+        setData(current => current ? { ...current, target: { ...current.target, prState: "merged" } } : current);
+        if (warning) toast.warning(warning); else toast.success("PR merged. Gantry will move the ticket to Done once all its changes are merged.");
+        void refresh();
+      }} />}
       {publishing && <PublishDialog id={id} snapshot={publishing} onClose={() => setPublishing(null)} onPublished={() => { setPublishing(null); setSource("pr"); localRevision.current = null; toast.success("Changes pushed to the PR"); void refresh(); }} />}
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
         <ResizablePanel id="files" defaultSize="18%" minSize={160}>
