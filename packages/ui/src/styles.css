@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --bg: #f4f6f9;
   --panel: #ffffff;
   --ink: #1c2433;
@@ -12,19 +13,6 @@
   --chip: #eef2f7;
   --radius: 10px;
   --shadow: 0 1px 2px rgb(15 23 42 / 6%), 0 4px 14px rgb(15 23 42 / 6%);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0e1420;
-    --panel: #172033;
-    --ink: #e6ecf5;
-    --muted: #94a3b8;
-    --line: #26324a;
-    --accent: #3b82f6;
-    --chip: #1f2a40;
-    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 18px rgb(0 0 0 / 35%);
-  }
 }
 
 * { box-sizing: border-box; }
