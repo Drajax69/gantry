@@ -1,6 +1,6 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
-import { GitBranchIcon } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { GitBranchIcon, MinusIcon, PlusIcon, MaximizeIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { gantry, type Workflow, type WorkflowRun, type TicketView } from '@/lib/client/gantry';
@@ -33,51 +33,71 @@ export function graphSummary(run?: WorkflowRun | null, execution?: TicketView['e
 /** Layers make forks and joins visible; arbitrary labels never become SVG markup. */
 function Graph({ graph, run, selected, onSelect }: { graph: Workflow; run?: WorkflowRun | null; selected: string; onSelect: (id: string) => void }) {
   const viewport = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const container = viewport.current;
-    if (!container) return;
-    const reveal = () => {
-      const button = container.querySelector<HTMLElement>(`[data-step-id="${selected}"]`);
-      if (!button) return;
-      const left = button.offsetLeft;
-      const top = button.offsetTop;
-      if (left < container.scrollLeft || left + button.offsetWidth > container.scrollLeft + container.clientWidth)
-        container.scrollLeft = Math.max(0, left - 16);
-      if (top < container.scrollTop || top + button.offsetHeight > container.scrollTop + container.clientHeight) container.scrollTop = Math.max(0, top - 16);
-    };
-    reveal();
-    const observer = new ResizeObserver(reveal);
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, [selected, graph.nodes.length]);
-  const positions = new Map(Object.entries(nodePositions(graph)));
+  const [zoom, setZoom] = useState(1);
+  const [fitView, setFitView] = useState(true);
+  const arrow = useId().replaceAll(':', '');
+  const layout = nodePositions(graph);
+  // Legacy graphs have no authored positions. Wrap their dependency layers so
+  // long paths remain legible instead of shrinking to a single tiny row.
+  if (!graph.nodes.some(n => n.position)) {
+    const columns = [...new Set(Object.values(layout).map(p => p.x))].sort((a, b) => a - b);
+    const rowsPerBand = Math.max(1, ...columns.map(x => Object.values(layout).filter(p => p.x === x).length));
+    for (const pos of Object.values(layout)) {
+      const level = columns.indexOf(pos.x);
+      const band = Math.floor(level / 3);
+      const column = band % 2 ? 2 - level % 3 : level % 3;
+      pos.x = 32 + column * 270;
+      pos.y = 32 + band * rowsPerBand * 150 + Math.max(0, (pos.y - 100) / 190) * 150;
+    }
+  }
+  const positions = new Map(Object.entries(layout));
   const edges = graph.edges ?? graph.nodes.flatMap((n) => n.dependsOn.map((source) => ({ id: `${source}-${n.id}`, source, target: n.id, label: '' })));
   const width = Math.max(300, ...[...positions.values()].map((p) => p.x + 240));
   const height = Math.max(150, ...[...positions.values()].map((p) => p.y + 130));
+  useEffect(() => {
+    const container = viewport.current;
+    if (!container || !fitView) return;
+    const fit = () => setZoom(Math.min(1, (container.clientWidth - 32) / width, (container.clientHeight - 32) / height));
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [fitView, width, height]);
   return (
-    <div ref={viewport} className="max-h-96 overflow-auto rounded-lg border bg-muted/20 p-2" aria-label="Workflow graph">
-      <div className="relative" style={{ width, height }}>
+    <div className="min-w-0 overflow-hidden rounded-lg border bg-muted/20">
+      <div className="flex items-center gap-1 border-b bg-background px-3 py-2">
+        <select aria-label="Selected workflow stage" className="mr-auto min-w-0 max-w-48 rounded-md border bg-background px-2 py-1 text-sm" value={selected} onChange={e => onSelect(e.target.value)}>{graph.nodes.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}</select>
+        <Button size="icon-sm" variant="ghost" aria-label="Zoom out graph" onClick={() => { setFitView(false); setZoom(z => Math.max(.15, z - .15)); }}><MinusIcon /></Button>
+        <span className="w-10 text-center text-xs tabular-nums">{Math.round(zoom * 100)}%</span>
+        <Button size="icon-sm" variant="ghost" aria-label="Zoom in graph" onClick={() => { setFitView(false); setZoom(z => Math.min(2, z + .15)); }}><PlusIcon /></Button>
+        <Button size="sm" variant="ghost" onClick={() => setFitView(true)}><MaximizeIcon />Fit</Button>
+      </div>
+      <div ref={viewport} className="h-[min(38dvh,360px)] min-h-64 xl:h-[min(56dvh,620px)] overflow-auto p-4" aria-label="Workflow graph">
+      <div style={{ width: width * zoom, height: height * zoom }}>
+      <div className="relative origin-top-left" style={{ width, height, transform: `scale(${zoom})` }}>
         <svg aria-hidden="true" className="absolute inset-0 text-muted-foreground" width={width} height={height}>
+          <defs><marker id={arrow} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="currentColor" /></marker></defs>
           {edges.map((edge) => {
             const a = positions.get(edge.source),
               b = positions.get(edge.target);
             if (!a || !b) return null;
-            const sx = a.x + 188,
-              sy = a.y + 38,
-              tx = b.x,
-              ty = b.y + 38;
+            const vertical = a.x === b.x;
+            const direction = b.x < a.x ? -1 : 1;
+            const sx = vertical ? a.x + 94 : a.x + (direction > 0 ? 188 : 0);
+            const sy = vertical ? a.y + (b.y > a.y ? 76 : 0) : a.y + 38;
+            const tx = vertical ? b.x + 94 : b.x + (direction > 0 ? 0 : 188);
+            const ty = vertical ? b.y + (b.y > a.y ? 0 : 76) : b.y + 38;
             return (
               <g key={edge.id}>
                 <title>{edge.label}</title>
                 <path
-                  d={
-                    tx > sx
-                      ? `M ${sx} ${sy} C ${sx + 60} ${sy}, ${tx - 60} ${ty}, ${tx} ${ty}`
-                      : `M ${sx} ${sy} C ${sx + 80} ${sy + 100}, ${tx - 80} ${ty + 100}, ${tx} ${ty}`
-                  }
+                  d={vertical
+                    ? `M ${sx} ${sy} C ${sx} ${(sy + ty) / 2}, ${tx} ${(sy + ty) / 2}, ${tx} ${ty}`
+                    : `M ${sx} ${sy} C ${sx + direction * 45} ${sy}, ${tx - direction * 45} ${ty}, ${tx} ${ty}`}
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="1.5"
+                  markerEnd={`url(#${arrow})`}
                 />
               </g>
             );
@@ -108,6 +128,8 @@ function Graph({ graph, run, selected, onSelect }: { graph: Workflow; run?: Work
           );
         })}
       </div>
+      </div>
+      </div>
     </div>
   );
 }
@@ -115,7 +137,7 @@ function Graph({ graph, run, selected, onSelect }: { graph: Workflow; run?: Work
 export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refresh: () => Promise<unknown> }) {
   const run = ticket.workflow;
   const [editing, setEditing] = useState(false);
-  const [selected, setSelected] = useState(run?.graph.nodes.find((n) => run.states[n.id]?.state !== 'done')?.id ?? '');
+  const [selected, setSelected] = useState(run?.graph.nodes.find((n) => run.states[n.id]?.state !== 'done')?.id ?? run?.graph.nodes.at(-1)?.id ?? '');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -180,7 +202,6 @@ export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refres
       <p role="status" className={`text-sm ${graphSummary(run, ticket.execution)?.waiting ? 'font-medium text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}`}>
         {graphSummary(run, ticket.execution)?.text}
       </p>
-      <ExecutionControls ticket={ticket} selected={selected} refresh={refresh} />
       {editing ? (
         <WorkflowCanvas
           initial={run.graph}
@@ -192,9 +213,10 @@ export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refres
           }}
         />
       ) : (
-        <>
+        <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
           <Graph
             graph={run.graph}
+            run={run}
             selected={selected}
             onSelect={(id) => {
               setSelected(id);
@@ -203,9 +225,10 @@ export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refres
             }}
           />
           {node && (
-            <div className="space-y-3 rounded-lg border p-4">
+            <div className="min-w-0 space-y-4 xl:max-h-[calc(56dvh+52px)] xl:overflow-y-auto xl:pr-2">
               <h4 className="font-medium">{node.label}</h4>
-              <p className="whitespace-pre-wrap text-sm text-muted-foreground">{node.instructions}</p>
+              <ExecutionControls ticket={ticket} selected={selected} refresh={refresh} />
+              <details className="border-b pb-4"><summary className="cursor-pointer text-sm font-medium">Stage instructions</summary><p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{node.instructions || 'No additional instructions.'}</p></details>
               {state?.message && <p className="whitespace-pre-wrap text-sm">{state.message}</p>}
               {!ready && (
                 <p className="text-xs text-muted-foreground">
@@ -217,7 +240,7 @@ export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refres
                 </p>
               )}
               {!ticket.execution && ready && state?.state !== 'done' && ticket.status !== 'done' && (
-                <>
+                <details><summary className="cursor-pointer text-sm text-muted-foreground">Update progress manually</summary>
                   <label className="block space-y-1 text-sm">
                     Update or question
                     <Textarea
@@ -240,11 +263,11 @@ export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refres
                       {node.kind === 'human' ? 'Confirm and continue' : 'Mark complete'}
                     </Button>
                   </div>
-                </>
+                </details>
               )}
             </div>
           )}
-        </>
+        </div>
       )}
       {error && (
         <p role="alert" className="text-sm text-destructive">
