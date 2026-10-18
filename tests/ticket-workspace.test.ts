@@ -47,3 +47,34 @@ test('new workspace needs no provider config, prepares reusable ticket branches,
     await assert.rejects(ticketWorkspace(app, ticket.id, true), /Reopen/);
   } finally { app.db.close(); if (previousData === undefined) delete process.env.GANTRY_DATA_DIR; else process.env.GANTRY_DATA_DIR = previousData; await temp.cleanup(); }
 });
+
+test('moving a ticket through the HTTP API does not prepare worktrees or start an agent', async () => {
+  const { createHttpServer } = await import('../packages/server/src/http/server.js');
+  const temp = await tempDir('gantry-status-only-');
+  const workspace = path.join(temp.dir, 'workspace');
+  await initFixtureRepo(workspace);
+  const previousData = process.env.GANTRY_DATA_DIR;
+  process.env.GANTRY_DATA_DIR = path.join(temp.dir, 'data');
+  const app = new GantryApp(createAppContext());
+  const server = await createHttpServer(app);
+  try {
+    await initializeWorkspace(workspace);
+    const project = await app.addWorkspace(workspace);
+    const ticket = app.tickets.create(project.config.project.id, { title: 'TEST_f84f8f57_status_only', scope: 'both' }, project.config.scopes.map(s => s.id), 'ticket');
+    const response = await server.inject({
+      method: 'POST', url: `/api/tickets/${ticket.id}/update`,
+      headers: { host: `127.0.0.1:${app.ctx.settings.port}` },
+      payload: { status: 'in_progress' },
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(app.tickets.get(ticket.id)?.status, 'in_progress');
+    assert.equal(app.tickets.get(ticket.id)?.active_run_id, null);
+    assert.equal(app.jobs.activeJobFor(`start-ticket:${ticket.id}`), null);
+    assert.equal((await ticketWorkspace(app, ticket.id)).checkouts.length, 0);
+  } finally {
+    await server.close();
+    app.db.close();
+    if (previousData === undefined) delete process.env.GANTRY_DATA_DIR; else process.env.GANTRY_DATA_DIR = previousData;
+    await temp.cleanup();
+  }
+});
