@@ -1,5 +1,5 @@
 import "server-only";
-import { spawn } from "node:child_process";
+import { spawn } from "../spawn";
 import type { ToolUse } from "@/lib/types";
 import type { StoredAgent } from "./store";
 

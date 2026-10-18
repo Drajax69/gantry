@@ -16,8 +16,8 @@ import { agentsStore, chooseAgent, useAgents } from "@/lib/client/agents";
 import type { Agent, AgentKind, AgentStatus } from "@/lib/types";
 
 const KINDS: { kind: AgentKind; label: string; blurb: string }[] = [
-  { kind: "claude", label: "Claude", blurb: "Claude Code CLI, signed in on this Mac" },
-  { kind: "codex", label: "Codex", blurb: "OpenAI Codex CLI, signed in on this Mac" },
+  { kind: "claude", label: "Claude", blurb: "Claude Code CLI, signed in on this computer" },
+  { kind: "codex", label: "Codex", blurb: "OpenAI Codex CLI, signed in on this computer" },
   { kind: "openai", label: "Own provider", blurb: "Any OpenAI-compatible API: OpenAI, OpenRouter, Ollama, LM Studio…" },
 ];
 

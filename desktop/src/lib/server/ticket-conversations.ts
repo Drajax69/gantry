@@ -3,7 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
-import { spawn, execFile } from "node:child_process";
+import { execFile } from "node:child_process";
+import { spawn, spawnConsole } from "./spawn";
 import { promisify } from "node:util";
 import { CLI, getAgent } from "./agents/store";
 import { HOME, git, withLock } from "./exec";
@@ -177,7 +178,13 @@ async function launch(record: TicketConversation) {
     const child = spawn("x-terminal-emulator", ["-e", ...args], { cwd: record.cwd, detached: true, stdio: "ignore" });
     await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
     child.unref();
-  } else throw httpError(409, "External conversations currently support macOS and Linux.");
+  } else if (process.platform === "win32") {
+    // Detached Windows children get their own console; cross-spawn resolves
+    // npm .cmd shims and escapes each argument, including the full prompt.
+    const child = spawnConsole(args[0], args.slice(1), record.cwd);
+    await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
+    child.unref();
+  } else throw httpError(409, "External conversations are not supported on this platform.");
   record.promptPrefilled = true;
   save(record);
 }

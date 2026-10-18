@@ -1,4 +1,4 @@
-// Gantry as a Mac app: starts the bundled Next.js server and shows it in a native window.
+// Gantry as a desktop app: starts the bundled Next.js server and shows it in a native window.
 const { app, BrowserWindow, Menu, dialog, shell, utilityProcess } = require("electron");
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -55,6 +55,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 
 /** Apps opened from Finder get a bare PATH; borrow the login shell's for local CLIs. */
 function loginShellPath() {
+  if (process.platform === "win32") return process.env.PATH || process.env.Path || "";
   const shellBin = process.env.SHELL || "/bin/zsh";
   try {
     const out = execFileSync(shellBin, ["-ilc", 'printf "__PATH__%s__PATH__" "$PATH"'], { timeout: 5000, encoding: "utf8" });
@@ -68,7 +69,7 @@ function loginShellPath() {
 
 function codexExecutable(searchPath) {
   if (process.env.PR_LENS_CODEX) return process.env.PR_LENS_CODEX;
-  const candidates = searchPath.split(path.delimiter).filter(Boolean).map((dir) => path.join(dir, "codex"));
+  const candidates = searchPath.split(path.delimiter).filter(Boolean).flatMap((dir) => (process.platform === "win32" ? ["codex.exe", "codex.cmd", "codex.bat"] : ["codex"]).map(name => path.join(dir.replace(/^"|"$/g, ""), name)));
   // The desktop app's CLI is not necessarily installed on the login shell's PATH.
   for (const root of ["/Applications", path.join(app.getPath("home"), "Applications")]) {
     candidates.push(
@@ -182,7 +183,7 @@ function createWindow() {
     title: "Gantry",
     // No title bar: the app's own 48px top bar is the title bar, with the traffic lights
     // centred in it (trafficLightPosition only applies to "hidden", not "hiddenInset").
-    titleBarStyle: "hidden",
+    titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
     trafficLightPosition: { x: 16, y: 17 },
     backgroundColor: "#ffffff",
     show: false,
@@ -212,7 +213,8 @@ function buildMenu() {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       {
-        role: "appMenu",
+        label: process.platform === "darwin" ? undefined : "File",
+        role: process.platform === "darwin" ? "appMenu" : undefined,
         submenu: [
           { role: "about" },
           { type: "separator" },

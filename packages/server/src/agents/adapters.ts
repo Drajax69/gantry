@@ -1,3 +1,4 @@
+import { binaryCandidates } from './binaries.js';
 import fs from 'node:fs/promises';
 import { run } from '../util/exec.js';
 import { unavailableCapabilities, type AgentCapabilities } from '@gantry/shared';
@@ -28,11 +29,13 @@ export class CodexAdapter implements AgentAdapter {
     if (override) return { path: (await exists(override)) ? override : null, via: override ? 'config' : null };
     if (process.env.GANTRY_CODEX_BINARY) {
       const path = process.env.GANTRY_CODEX_BINARY;
-      return (await exists(path)) ? { path, via: 'GANTRY_CODEX_BINARY' } : { path: null, via: 'GANTRY_CODEX_BINARY' };
+      for (const candidate of [path, ...binaryCandidates(path)]) {
+        if (await exists(candidate)) return { path: candidate, via: 'GANTRY_CODEX_BINARY' };
+      }
+      return { path: null, via: 'GANTRY_CODEX_BINARY' };
     }
     if (await exists(BUNDLED_CODEX)) return { path: BUNDLED_CODEX, via: 'ChatGPT.app bundle' };
-    for (const dir of (process.env.PATH ?? '').split(':')) {
-      const candidate = `${dir}/codex`;
+    for (const candidate of binaryCandidates('codex')) {
       if (await exists(candidate)) return { path: candidate, via: 'PATH' };
     }
     return { path: null, via: null };
@@ -113,8 +116,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
 
   async resolveBinary(override?: string): Promise<{ path: string | null; via: string | null }> {
     if (override) return { path: (await exists(override)) ? override : null, via: override ? 'config' : null };
-    for (const dir of (process.env.PATH ?? '').split(':')) {
-      const candidate = `${dir}/claude`;
+    for (const candidate of binaryCandidates('claude')) {
       if (await exists(candidate)) return { path: candidate, via: 'PATH' };
     }
     return { path: null, via: null };
@@ -191,8 +193,7 @@ export class OpenCodeAdapter implements AgentAdapter {
 
   async resolveBinary(override?: string): Promise<{ path: string | null; via: string | null }> {
     if (override) return { path: (await exists(override)) ? override : null, via: override ? 'config' : null };
-    for (const dir of (process.env.PATH ?? '').split(':')) {
-      const candidate = `${dir}/opencode`;
+    for (const candidate of binaryCandidates('opencode')) {
       if (await exists(candidate)) return { path: candidate, via: 'PATH' };
     }
     return { path: null, via: null };

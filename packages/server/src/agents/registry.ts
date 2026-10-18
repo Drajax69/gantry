@@ -123,7 +123,7 @@ export class AgentRegistry {
       .prepare(
         `UPDATE runs SET agent=?, state='running', workspace=?, pid=?, pgid=?, pid_claim=?, started_at=COALESCE(started_at, ?), error=NULL WHERE id=?`,
       )
-      .run(options.agentId, workspace, handle.pid, handle.pgid, spec.claim, new Date().toISOString(), runId);
+      .run(options.agentId, workspace, handle.pid, handle.pgid, handle.claim ?? spec.claim, new Date().toISOString(), runId);
     this.log.info(`Started ${adapter.label} run ${runId} for ticket ${ticket.id} (pid ${handle.pid})`);
     void this.watch(runId, adapter, handle.exited);
     return this.runRow(runId)!;

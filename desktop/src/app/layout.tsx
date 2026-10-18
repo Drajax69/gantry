@@ -28,7 +28,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <head>
         {/* In the Mac app the window has no title bar: make room for the traffic lights. */}
-        <script dangerouslySetInnerHTML={{ __html: 'if(/Electron/.test(navigator.userAgent))document.documentElement.classList.add("electron")' }} />
+        <script dangerouslySetInnerHTML={{ __html: 'if(/Electron/.test(navigator.userAgent)&&/Macintosh/.test(navigator.userAgent))document.documentElement.classList.add("electron")' }} />
       </head>
       <body className="h-full flex flex-col">
         <ThemeProvider>
