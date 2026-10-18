@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Show cached pull request status icons on desktop ticket cards, graph nodes and ticket details.
+
 - Export workspace graphs as JSON and import them into another workspace for review before saving.
 
 - Windows desktop build targets, native window controls, external agent consoles, command-shim support and owned process-tree supervision. Native Windows lifecycle checks remain required before distribution.
