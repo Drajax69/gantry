@@ -138,10 +138,15 @@ flowchart LR
   Review -->|Complete| Finish[Ready]
 ```
 
-Enable automatic execution in **Workspace graph**, or select **Start workflow**
+Open **Workspace graph** for a full-page canvas: drag nodes into place, connect
+them, and name each edge with the condition for following it. Click a node to set
+its instructions and model. A separate coordinator chat reads those conditions
+and the stage results to choose what happens next.
+
+Enable **Run automatically**, or select **Start workflow**
 inside a ticket. Up to ten tickets can run at once; stages within each ticket run
-sequentially. Configure correction routes and attempt limits so review findings
-return to implementation automatically. Pause, inspect stage history, or open a
+sequentially. Label a return edge “If review finds issues” to send findings back to
+implementation automatically. Repeated visits are bounded. Pause, inspect stage history, or open a
 stage's external chat when you need to intervene. Only blocked work produces
 attention notices in the app.
 

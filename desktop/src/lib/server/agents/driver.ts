@@ -22,6 +22,7 @@ export interface Turn {
 export interface RunInput {
   agent: StoredAgent;
   /** Explicit autonomous ticket execution; review-chat defaults remain unchanged. */
+  coordinator?: boolean;
   workflow?: { reasoningEffort?: string; addDirs: string[] };
   /** The editable local checkout under review. */
   cwd: string;

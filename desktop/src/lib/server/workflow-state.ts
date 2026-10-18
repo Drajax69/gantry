@@ -25,9 +25,14 @@ export interface Execution {
   attempts: Attempt[];
   defaultProviderId: string;
   updatedAt: number;
+  activeNodeId?: string;
+  routing?: { nodeId: string; outcome: Outcome; summary: string };
+  coordinatorSessionId?: string;
+  routes?: { edgeId: string | null; reason: string; at: number }[];
   replies?: { nodeId: string; message: string; at: number }[];
 }
 export function nextNode(run: Execution) {
+  if (run.graph.edges !== undefined) return run.graph.nodes.find((n) => n.id === (run.activeNodeId || run.graph.entryNodeId) && run.steps[n.id] === 'pending');
   return run.graph.nodes.find((n) => run.steps[n.id] === 'pending' && n.dependsOn.every((id) => run.steps[id] === 'done'));
 }
 export function parseOutcome(output: string): { outcome: Outcome; summary: string } {
@@ -43,7 +48,10 @@ export function parseOutcome(output: string): { outcome: Outcome; summary: strin
 export function resetFrom(run: Execution, target: string) {
   if (!run.graph.nodes.some((n) => n.id === target)) throw new Error('Unknown correction target.');
   const reset = new Set([target]);
-  for (let pass = 0; pass < run.graph.nodes.length; pass++) for (const n of run.graph.nodes) if (n.dependsOn.some((id) => reset.has(id))) reset.add(n.id);
+  for (let pass = 0; pass < run.graph.nodes.length; pass++)
+    for (const n of run.graph.nodes)
+      if (run.graph.edges !== undefined ? run.graph.edges.some((e) => e.target === n.id && reset.has(e.source)) : n.dependsOn.some((id) => reset.has(id)))
+        reset.add(n.id);
   for (const id of reset) run.steps[id] = 'pending';
 }
 export function finishAttempt(run: Execution, attempt: Attempt, outcome: Outcome, summary: string) {
@@ -52,6 +60,12 @@ export function finishAttempt(run: Execution, attempt: Attempt, outcome: Outcome
   attempt.endedAt = Date.now();
   const node = run.graph.nodes.find((n) => n.id === attempt.nodeId)!;
   run.message = summary;
+  if (run.graph.edges !== undefined) {
+    run.steps[node.id] = outcome === 'done' ? 'done' : outcome === 'waiting' ? 'waiting' : 'failed';
+    if (outcome === 'done' || outcome === 'changes_requested') run.routing = { nodeId: node.id, outcome, summary };
+    else run.state = 'waiting';
+    return;
+  }
   if (outcome === 'done') {
     run.steps[node.id] = 'done';
     if (run.graph.nodes.every((n) => run.steps[n.id] === 'done')) run.state = 'complete';
@@ -68,4 +82,46 @@ export function finishAttempt(run: Execution, attempt: Attempt, outcome: Outcome
     run.steps[node.id] = outcome === 'waiting' ? 'waiting' : 'failed';
     run.state = 'waiting';
   }
+}
+
+/** Only configured paths from completed work can be taken; arbitrary node IDs never execute. */
+export function applyRoute(run: Execution, output: string) {
+  const line = output.trim().split('\n').at(-1);
+  if (!line?.startsWith('GANTRY_ROUTE ')) throw new Error('Coordinator did not return a routing decision. Resume to retry routing.');
+  const decision = JSON.parse(line.slice('GANTRY_ROUTE '.length));
+  if (typeof decision.reason !== 'string' || !decision.reason.trim() || decision.reason.length > 12000)
+    throw new Error('Coordinator returned an invalid routing reason.');
+  if (decision.wait === true) {
+    run.state = 'waiting';
+    run.message = decision.reason;
+    return;
+  }
+  const current = run.routing;
+  if (!current) throw new Error('No handover is awaiting routing.');
+  if (decision.edgeId === null) {
+    if (current.outcome !== 'done' || run.graph.edges?.some((e) => e.source === current.nodeId))
+      throw new Error('Coordinator cannot finish before a terminal node completes.');
+    run.state = 'complete';
+    run.message = decision.reason;
+    run.routing = undefined;
+  } else {
+    const edge = run.graph.edges?.find((e) => e.id === decision.edgeId);
+    if (!edge || !(run.steps[edge.source] === 'done' || edge.source === current.nodeId)) throw new Error('Coordinator selected an unavailable connection.');
+    if (current.outcome === 'changes_requested' && edge.source !== current.nodeId)
+      throw new Error('Corrections must follow a connection from the node requesting changes.');
+    const target = run.graph.nodes.find((n) => n.id === edge.target)!;
+    if (run.attempts.filter((a) => a.nodeId === target.id).length >= (target.maxAttempts ?? 3)) {
+      run.state = 'waiting';
+      run.message = `Visit limit reached for ${target.label}. ${decision.reason}`;
+      return;
+    }
+    if (run.attempts.some((a) => a.nodeId === target.id)) resetFrom(run, target.id);
+    run.steps[target.id] = 'pending';
+    run.activeNodeId = target.id;
+    run.routing = undefined;
+    run.state = 'running';
+    run.message = decision.reason;
+  }
+  run.routes ??= [];
+  run.routes.push({ edgeId: decision.edgeId, reason: decision.reason, at: Date.now() });
 }

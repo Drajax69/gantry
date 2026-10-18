@@ -22,10 +22,15 @@ test('workspace graph runs separate model-specific chats and corrects without ap
   expect((await request.post('/api/gantry/api/projects/fixture/workflow', { data: graph })).ok()).toBe(true);
   await page.goto('/');
   await page.getByRole('button', { name: 'Workspace graph', exact: true }).click();
-  await expect(page.getByLabel('Stage model')).toHaveValue('planner-fixture');
-  await expect(page.getByRole('checkbox', {name:/Automatically run new tickets/})).toBeVisible();
+  await page.getByRole('button', { name: 'Edit node Plan', exact: true }).click();
+  await expect(page.getByLabel('Node model')).toHaveValue('planner-fixture');
+  await page.getByRole('button', { name: 'Close editor', exact: true }).click();
+  await expect(page.getByRole('switch', { name: 'Run automatically' })).toBeVisible();
   await page.screenshot({ path: 'e2e/.tmp/workflow-model-controls.png' });
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Gantry workspace' })
+    .getByRole('button', { name: /Tickets/ })
+    .click();
   await request.post('/api/gantry/api/projects/fixture/tickets', { data: { title: 'Automatic fixture' } });
   await request.post('/api/gantry/api/tickets/ticket-1/update', { data: { status: 'in_progress' } });
   await expect.poll(async () => (await (await request.get('/api/workflow-execution?ticketId=ticket-1')).json())?.state, { timeout: 30000 }).toBe('complete');

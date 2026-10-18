@@ -19,13 +19,15 @@ interface CodexLine {
   };
 }
 
-export const codex: Driver = async ({ agent, cwd, system, prompt, sessionId, history, hooks, signal, workflow }) => {
+export const codex: Driver = async ({ agent, cwd, system, prompt, sessionId, history, hooks, signal, workflow, coordinator }) => {
   // Allow edits inside the review workspace,
   // and none of your ~/.codex config, so no MCP servers, profiles or execpolicy rules.
   // Login still comes from ~/.codex.
-  const args = workflow
-    ? ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check']
-    : ['exec', '--json', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--sandbox', 'workspace-write'];
+  const args = coordinator
+    ? ['exec', '--json', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--sandbox', 'read-only', '-c', 'web_search="disabled"']
+    : workflow
+      ? ['exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check']
+      : ['exec', '--json', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '--sandbox', 'workspace-write'];
   if (workflow?.reasoningEffort) args.push('-c', `model_reasoning_effort=${JSON.stringify(workflow.reasoningEffort)}`);
   if (agent.model) args.push('--model', agent.model);
   // Codex has no flag for extra system instructions, so a new session gets them up front.
@@ -39,7 +41,7 @@ export const codex: Driver = async ({ agent, cwd, system, prompt, sessionId, his
   const r = await runCli(CLI.codex, args, {
     cwd,
     signal,
-    processGroup: !!workflow,
+    processGroup: !!workflow || !!coordinator,
     stdin,
     onLine(line) {
       let ev: CodexLine;

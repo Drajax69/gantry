@@ -1,5 +1,5 @@
 import { workspacePrompt, saveWorkspacePrompt } from '../packages/server/src/projects/prompt.js';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -61,6 +61,8 @@ test('moving a ticket through the HTTP API does not prepare worktrees or start a
   const previousData = process.env.GANTRY_DATA_DIR;
   process.env.GANTRY_DATA_DIR = path.join(temp.dir, 'data');
   const app = new GantryApp(createAppContext());
+  // Preview discovery is independent of this HTTP status-only contract.
+  const tick = vi.spyOn(app.supervisor, 'tick').mockResolvedValue();
   const server = await createHttpServer(app);
   try {
     await initializeWorkspace(workspace);
@@ -78,7 +80,8 @@ test('moving a ticket through the HTTP API does not prepare worktrees or start a
     assert.equal((await ticketWorkspace(app, ticket.id)).checkouts.length, 0);
   } finally {
     await server.close();
-    app.db.close();
+    tick.mockRestore();
+    await app.shutdown();
     if (previousData === undefined) delete process.env.GANTRY_DATA_DIR; else process.env.GANTRY_DATA_DIR = previousData;
     await temp.cleanup();
   }

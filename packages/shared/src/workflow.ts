@@ -3,16 +3,22 @@ import { z } from 'zod';
 export const workflowSchema = z
   .object({
     autoStart: z.boolean().optional(),
+    entryNodeId: z.string().optional(),
+    edges: z
+      .array(z.object({ id: z.string().regex(/^[a-z][a-z0-9-]{0,100}$/), source: z.string(), target: z.string(), label: z.string().trim().min(1).max(2000) }))
+      .max(250)
+      .optional(),
     nodes: z
       .array(
         z.object({
           id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
           label: z.string().trim().min(1).max(100),
+          position: z.object({ x: z.number().finite().min(0).max(10000), y: z.number().finite().min(0).max(10000) }).optional(),
           instructions: z.string().max(10000).default(''),
           kind: z.enum(['agent', 'human']).default('agent'),
           providerId: z.string().max(100).optional(),
           model: z.string().max(200).optional(),
-          reasoningEffort: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
+          reasoningEffort: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']).optional(),
           retryTarget: z.string().optional(),
           maxAttempts: z.number().int().min(1).max(10).optional(),
           workspaceExclusive: z.boolean().optional(),
@@ -20,13 +26,29 @@ export const workflowSchema = z
           dependsOn: z.array(z.string()).max(50).default([]),
         }),
       )
-      .min(1)
       .max(50),
   })
-  .superRefine(({ nodes }, ctx) => {
+  .superRefine(({ nodes, edges, entryNodeId, autoStart }, ctx) => {
     const ids = new Set(nodes.map((n) => n.id));
     const fail = (message: string) => ctx.addIssue({ code: 'custom', message });
     if (ids.size !== nodes.length) fail('Each step needs a unique ID.');
+    if (edges !== undefined) {
+      if (nodes.length === 0) {
+        if (edges.length || entryNodeId || autoStart) fail('An empty board cannot run. Add a start node first.');
+        return;
+      }
+      if (!entryNodeId || !ids.has(entryNodeId)) fail('Choose a start node.');
+      if (new Set(edges.map((e) => e.id)).size !== edges.length) fail('Each connection needs a unique ID.');
+      for (const edge of edges)
+        if (!ids.has(edge.source) || !ids.has(edge.target) || edge.source === edge.target) fail('Connections must link two different nodes.');
+      if (autoStart) {
+        const reached = new Set([entryNodeId]);
+        for (let i = 0; i < nodes.length; i++) for (const edge of edges) if (reached.has(edge.source)) reached.add(edge.target);
+        if (nodes.some((n) => !reached.has(n.id))) fail('Connect every node to the start before enabling automatic runs.');
+      }
+      return; // Directed routes may loop. The executor bounds repeated visits.
+    }
+    if (!nodes.length) fail('Add at least one step.');
     for (const node of nodes) {
       if (node.retryTarget && (!ids.has(node.retryTarget) || node.retryTarget === node.id)) fail(`Invalid retry target for ${node.label}.`);
       if (new Set(node.dependsOn).size !== node.dependsOn.length) fail(`Duplicate dependencies for ${node.label}.`);

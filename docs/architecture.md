@@ -197,55 +197,62 @@ progress. A linked conversation alone does not mean an agent is running.
 
 ### Automatic workspace workflows
 
-The desktop server coordinates ticket graphs independently of any provider's
-native subagent feature. Each agent node gets a separate provider session, model,
-and optional reasoning effort. Gantry passes the ticket, prepared worktree paths,
-workspace instructions, previous handovers, and user replies into that stage.
-Provider and model defaults are resolved when the run starts. The coordinator is
-a deterministic scheduler; it does not spend model tokens deciding which edge
-comes next.
+Workspace graph is a page with a draggable canvas. Add nodes, drag an output
+connector onto another node, and click the resulting edge to describe its
+condition. Node dialogs contain name, instructions, provider, model, and reasoning
+effort. The start node is explicit. Empty boards are valid drafts; all nodes must
+be reachable before automatic execution can be enabled. Positions and edge labels
+are saved in workspace YAML and copied into new tickets. Unsaved browser drafts
+survive navigation in the same tab. Saving an older workspace graph converts its
+dependencies and correction targets into named connections; existing ticket
+snapshots and running executions retain their original behavior.
 
-Enable **Automatically run new tickets moved into In progress** in Workspace
-graph, or use **Start workflow** on an existing ticket. Graphs are copied at ticket
-creation. Running a graph authorizes its agents to execute local tools without
-routine permission prompts. Existing external chats require an explicit handoff
-before automation starts. Configure node instructions to define delivery actions,
-including PR creation; merge only belongs in a stage that explicitly requests it.
+For graphs with `edges`, Gantry maintains a separate coordinator conversation
+using the ticket's default provider. After each stage handover, the coordinator
+reads the graph, natural-language edge conditions, stage states, and recent
+results. It chooses a configured edge and explains why it applies. It can return
+to earlier nodes or finish other required branches before a join. Branch and join
+conditions are interpreted by the model; they are not a formal boolean rule
+language. These routing calls consume provider usage. The coordinator uses a
+read-only Codex session, a Claude session without tools, or an API call without
+tools. Each working node has its own session and model settings.
 
-The scheduler runs up to ten tickets concurrently and one stage per ticket.
-Dependencies form a DAG; all parents must complete before a node runs. Sibling
-nodes execute sequentially against the shared ticket worktrees. Mark merge stages
-**Serialize across workspace** to exclude other automated stages in that workspace.
-This lock covers Gantry's executor, not external Git activity. Merge validation is
-part of the stage instructions, not an independently enforced merge gate.
+The executor validates decisions before dispatch: the edge must exist, its source
+must have completed (or be the current correction request), and the target must
+stay within its visit limit. Corrections reset the target and reachable downstream
+states, preserving prior attempts. Completion requires a successful terminal node
+with no outgoing edges. Ambiguous conditions, invalid responses, failures, and
+exhausted visit limits pause the ticket with an in-app attention notice. Limits
+default to three visits per node; a user can explicitly retry after inspection.
+Routing decisions and the coordinator's session ID are persisted with the run.
 
-Each stage must end with `GANTRY_RESULT` followed by JSON containing `outcome`
-(`done`, `changes_requested`, `waiting`, or `failed`) and a nonempty `summary`.
-`done` unlocks dependencies. `changes_requested` follows the configured earlier
-ancestor, resetting it and all descendants while retaining every attempt. Limits
-default to three attempts per stage. Missing/invalid handovers, errors, timeouts,
-and exhausted limits stop the ticket and surface an in-app attention notice.
-Human nodes explicitly wait for a reply; use agent nodes for unattended stages.
+The scheduler runs up to ten tickets concurrently and one working node per ticket.
+A kernel-owned local socket elects one executor per data directory. Graphs without
+`edges` retain the original dependency scheduler and bounded `retryTarget` logic.
+Legacy `workspaceExclusive`, `freshSession`, and human-node settings remain
+supported in saved runs but are not presented in the new editor. A merge is still
+an action defined by the node's instructions, not an independently enforced merge
+gate. The coordinator must not substitute model judgment for required validation.
 
-Codex and Claude use their local CLIs and retain native conversation IDs. Retries
-resume that stage's chat unless **Fresh chat on each attempt** is selected. API
-providers use their configured chat-completions endpoint with repository tools
-and a local shell tool; their history is available in Gantry rather than an
-external app. Model IDs and reasoning support depend on the selected provider;
-unsupported settings produce a visible failure, never a silent model fallback.
+Enable **Run automatically** on the workspace graph, or use **Start workflow** on
+a ticket. Execution authorizes the stage agents to run local tools without routine
+approval prompts. Existing external chats require a handoff first. Codex and Claude
+retain native conversation IDs. OpenAI-compatible endpoints receive repository
+and shell tools; their output is available in Gantry. Model selectors read Codex's
+local model catalog and aliases documented by the installed Claude CLI. Provider
+defaults, saved model IDs, and custom IDs remain available if discovery fails.
+Unsupported model/effort settings fail visibly rather than silently substituting.
 
-Execution state and bounded output logs are atomically persisted under
-`~/.pr-lens/workflow-runs` (or `PR_LENS_HOME`). A local kernel socket elects one
-executor per data directory. The desktop bridge exposes the execution snapshot
-and rejects manual graph-progress mutations for automated tickets. Legacy runtime
-CLI progress remains separate and must not be used to drive an automated ticket.
-Keep the desktop server running for execution; no browser tab needs to stay open.
-A restart preserves history but pauses interrupted stages for inspection rather
-than replaying an unknown side effect. Pause aborts the current provider process;
-it does not undo edits or external actions already completed. Stop manual work in
-an opened stage chat before resuming automation.
+Run state and bounded output are atomically persisted under
+`~/.pr-lens/workflow-runs` (or `PR_LENS_HOME`). Keep the desktop server running;
+the browser tab can be closed. Interrupted working stages pause after restart to
+avoid replaying unknown side effects. A persisted routing checkpoint can retry
+the coordinator without repeating completed implementation work. Pause aborts
+the active provider process; it does not undo completed edits or external actions.
+Stop manual work in a stage chat before resuming automation. The desktop bridge
+exposes the execution snapshot; legacy runtime CLI progress is separate and must
+not drive automated tickets.
 
-Tests use disposable checkouts and fake providers. They cover automatic model
-selection, session separation and reuse, corrective handovers, interruption,
-workspace serialization, malformed outcomes, and bounded retries without spending
-provider credits or changing user repositories.
+Tests use disposable repositories and fake providers. They cover canvas movement,
+connectors, saved layout, models, coordinator decisions, correction loops, bounded
+visits, native-session reuse, cancellation, recovery, and legacy graph execution.

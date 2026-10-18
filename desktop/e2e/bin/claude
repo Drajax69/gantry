@@ -6,6 +6,7 @@ if (process.argv[2] === "--version") {
   console.log("0.0.0-fixture (Claude Code)");
   process.exit(0);
 }
+if (process.argv[2] === '--help') {console.log("--model <model> Model alias (e.g. 'opus', 'sonnet')\n  --other");process.exit(0);}
 let prompt = "";
 process.stdin.on("data", (d) => (prompt += d));
 process.stdin.on("end", async () => {
@@ -16,6 +17,13 @@ process.stdin.on("end", async () => {
   if (prompt.includes("FAIL")) {
     process.stderr.write("API Error: overloaded\n");
     process.exit(1);
+  }
+  if(process.argv.includes('--tools') && process.argv[process.argv.indexOf('--tools')+1]===''){
+    const data=JSON.parse(prompt);const current=data.latest;
+    let edge;
+    if(current.outcome==='changes_requested')edge=data.edges.find(e=>e.source===current.nodeId && /issues|changes|fix/i.test(e.label));
+    else edge=data.edges.find(e=>e.source===current.nodeId && !/issues|changes|fix/i.test(e.label));
+    out({type:'result',session_id:'coordinator-fixture',result:'GANTRY_ROUTE '+JSON.stringify({edgeId:edge?.id??null,reason:edge?.label??'All required stages complete'}),is_error:false});return;
   }
   if(prompt.includes('GANTRY_RESULT ')) {
     const resumedIndex=process.argv.indexOf('--resume');

@@ -13,16 +13,17 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/client/api";
 import { gantry, type ProjectView, type StatusView, type TicketView } from "@/lib/client/gantry";
 
+import { WorkspaceGraphPage } from "./workflow-canvas";
 import { TicketGraph } from "./ticket-graph";
 import { useTicketColors } from "./ticket-colors";
 import { Workspace as ReviewWorkspace } from "@/components/space/workspace";
 import { PreviewPane } from "./preview-pane";
-import { WorkspaceGraphDialog, TicketWorkflow, graphSummary } from "./workflow";
+import { TicketWorkflow, graphSummary } from "./workflow";
 import { DeleteTicketDialog } from "./delete-ticket-dialog";
 import { TicketDialog } from "./ticket-dialog";
 import { TicketConversation, ticketChatRequest, openTicketChat } from "./ticket-chat";
 
-type Area = "tickets" | "reviews" | "previews";
+type Area = "tickets" | "reviews" | "previews" | "workflow";
 const labels: Record<string, string> = { backlog: "Backlog", in_progress: "In progress", done: "Done" };
 const selectClass = "h-8 rounded-lg border bg-background px-2 text-sm focus-visible:outline-2 focus-visible:outline-ring";
 const bridge = (url: string) => `/api/gantry${url}`;
@@ -47,7 +48,6 @@ export function GantryWorkspace() {
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropColumn, setDropColumn] = useState<string | null>(null);
   const [previewTicket, setPreviewTicket] = useState("main");
-  const [promptOpen, setPromptOpen] = useState(false);
   const [deleting, setDeleting] = useState<TicketView | null>(null);
   const [creating, setCreating] = useState(false);
   const [editingTicket, setEditingTicket] = useState(false);
@@ -81,6 +81,7 @@ export function GantryWorkspace() {
       setProjectId(params.get("workspace") || localStorage.getItem("gantry-workspace") || "");
       setSelected(params.get("ticket"));
       setTicketView(localStorage.getItem("gantry-ticket-view") === "graph" ? "graph" : "board");
+      if (params.get("view") === "workflow") setArea("workflow");
       if (params.get("review")) { setReviewSpace(params.get("review")); setArea("reviews"); }
       void refresh();
     });
@@ -180,6 +181,7 @@ export function GantryWorkspace() {
     if (!activeProjectId) return;
     const params = new URLSearchParams(window.location.search);
     params.set("workspace", activeProjectId);
+    if(area === "workflow") params.set("view","workflow"); else params.delete("view");
     if (area === "reviews" && reviewSpace) params.set("review", reviewSpace);
     else params.delete("review");
     params.delete("ticket");
@@ -192,7 +194,7 @@ export function GantryWorkspace() {
                   <button onClick={() => openTicket(t.id)} className="flex w-full flex-col gap-3 p-3 text-left focus-visible:outline-2 focus-visible:outline-ring" aria-pressed={selected === t.id}>
                     <span className="flex items-start gap-2 break-words text-sm font-semibold"><span aria-hidden="true" className="gantry-ticket-dot mt-1 size-2 shrink-0 rounded-full" />{t.title}</span>
                     <span className="flex max-w-full items-center gap-1.5 text-xs text-muted-foreground"><GitBranchIcon className="size-3 shrink-0" /><span className="truncate font-mono">{t.branch}</span></span>
-                    {t.workflow && <span className={cn("text-xs", graphSummary(t.workflow)?.waiting ? "font-semibold text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>{graphSummary(t.workflow)?.text}</span>}
+                    {t.workflow && <span className={cn("text-xs", graphSummary(t.workflow, t.execution)?.waiting ? "font-semibold text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>{graphSummary(t.workflow, t.execution)?.text}</span>}
                     {t.conversation && <span className="text-xs text-muted-foreground">Chat linked · {t.conversation.providerName}</span>}
                     {t.run && <span className="text-xs text-muted-foreground">{t.run.agent} · {t.run.state}</span>}
                   </button>
@@ -200,7 +202,6 @@ export function GantryWorkspace() {
                 </article>]));
 
   return <div className="gantry-workspace flex h-full min-h-0 flex-col bg-background">
-    {promptOpen && project && <WorkspaceGraphDialog project={project} onClose={() => setPromptOpen(false)} />}
     {deleting && <DeleteTicketDialog title={deleting.title} busy={busy} onCancel={() => setDeleting(null)} onDelete={() => void act(() => gantry.deleteTicket(deleting.id), "Ticket deleted").then(ok => { if (ok) { if (selected === deleting.id) closeTicket(); setDeleting(null); } })} />}
     <header className="app-bar flex h-12 shrink-0 items-center gap-3 border-b px-4">
       <span className="flex items-center gap-2 text-sm font-semibold"><LayoutListIcon className="size-5 text-violet-600 dark:text-violet-300" />Gantry</span>
@@ -221,13 +222,14 @@ export function GantryWorkspace() {
         </nav>
         {project && <nav aria-label="Previews" className="space-y-1"><h2 className="mb-2 flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground"><MonitorIcon className="size-4" />Previews</h2>{previewEntries.map(entry => <Button key={entry.id} variant={area === "previews" && activePreview.id === entry.id ? "secondary" : "ghost"} className={cn("h-auto min-h-8 w-full justify-start pl-6 text-left", area === "previews" && activePreview.id === entry.id && "gantry-nav-reviews")} aria-current={area === "previews" && activePreview.id === entry.id ? "page" : undefined} onClick={() => { setPreviewTicket(entry.id); changeArea("previews"); closeTicket(); }}><span className="min-w-0 whitespace-normal break-words">{entry.name}</span></Button>)}</nav>}
         <div className="mt-auto space-y-3">
-          {project && <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setPromptOpen(true)}><GitBranchIcon />Workspace graph</Button>}
+          {project && <Button variant={area === "workflow" ? "secondary" : "ghost"} size="sm" className="w-full justify-start" aria-current={area === "workflow" ? "page" : undefined} onClick={() => changeArea("workflow")}><GitBranchIcon />Workspace graph</Button>}
           <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setAdding(!adding)}><PlusIcon /> Add workspace</Button>
           {project && <p className="break-all text-xs leading-relaxed text-muted-foreground">{project.workspace}</p>}
         </div>
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
-        {area !== "previews" && !(area === "reviews" && reviewSpace) && <div className="flex flex-wrap items-center gap-3 border-b px-6 py-5">
+        {area === "workflow" && project && <WorkspaceGraphPage key={project.id} project={project}/>}
+        {area !== "workflow" && area !== "previews" && !(area === "reviews" && reviewSpace) && <div className="flex flex-wrap items-center gap-3 border-b px-6 py-5">
           <div className="min-w-0 flex-1"><h1 className="text-xl font-semibold">{area === "tickets" ? "Tickets" : "Ready for review"}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{area === "tickets" ? "Create a worktree, build the feature, and open a pull request." : "Review related pull requests together."}</p></div>
           {area === "tickets" && <div role="group" aria-label="Ticket view" className="flex rounded-lg border p-1">
@@ -244,8 +246,8 @@ export function GantryWorkspace() {
         </form>}
         {!data && !error && <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2Icon className="size-4 animate-spin" /> Loading your workspaces…</div>}
         {data && !project && <div className="max-w-xl space-y-3 p-8"><h2 className="text-lg font-medium">Connect your first workspace</h2><p className="text-sm leading-relaxed text-muted-foreground">Choose a Git repository or a folder of repositories. Gantry creates local configuration automatically. Configure your provider once in Settings, then start a ticket.</p><Button onClick={() => setAdding(true)}>Add workspace</Button></div>}
-        {area === "tickets" && tickets.some(t => t.status !== "done" && graphSummary(t.workflow)?.waiting) && <div className="flex flex-wrap items-center gap-2 border-b bg-amber-50 px-6 py-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><span className="font-medium">Waiting on you</span>{tickets.filter(t => t.status !== "done" && graphSummary(t.workflow)?.waiting).map(t => <Button key={t.id} size="sm" variant="ghost" onClick={() => openTicket(t.id)}>{t.title}</Button>)}</div>}
-        {area !== "previews" && jobs.length > 0 && <details className="border-b px-6 py-3 text-xs text-muted-foreground"><summary className="cursor-pointer">Activity · {jobs.length} recent jobs</summary><div className="mt-3 space-y-2">{jobs.map((j) => <div key={j.id} className="flex flex-wrap items-center gap-2"><State value={j.state} /><span>{j.kind} · {j.detail || j.phase || j.error || "Queued"}</span>{j.error && <span className="text-destructive">{j.error}</span>}</div>)}</div></details>}
+        {area === "tickets" && tickets.some(t => t.status !== "done" && graphSummary(t.workflow, t.execution)?.waiting) && <div className="flex flex-wrap items-center gap-2 border-b bg-amber-50 px-6 py-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><span className="font-medium">Waiting on you</span>{tickets.filter(t => t.status !== "done" && graphSummary(t.workflow, t.execution)?.waiting).map(t => <Button key={t.id} size="sm" variant="ghost" onClick={() => openTicket(t.id)}>{t.title}</Button>)}</div>}
+        {area !== "workflow" && area !== "previews" && jobs.length > 0 && <details className="border-b px-6 py-3 text-xs text-muted-foreground"><summary className="cursor-pointer">Activity · {jobs.length} recent jobs</summary><div className="mt-3 space-y-2">{jobs.map((j) => <div key={j.id} className="flex flex-wrap items-center gap-2"><State value={j.state} /><span>{j.kind} · {j.detail || j.phase || j.error || "Queued"}</span>{j.error && <span className="text-destructive">{j.error}</span>}</div>)}</div></details>}
 
         {project && previewEntries.map(entry => {
           const owner = tickets.find(ticket => ticket.id === entry.id);

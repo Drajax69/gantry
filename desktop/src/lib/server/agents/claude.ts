@@ -33,40 +33,56 @@ const ALLOWED_TOOLS = [
   'Bash(wc:*)',
 ].join(',');
 
-export const claude: Driver = async ({ agent, cwd, system, prompt, sessionId, history, hooks, signal, workflow }) => {
+export const claude: Driver = async ({ agent, cwd, system, prompt, sessionId, history, hooks, signal, workflow, coordinator }) => {
   // The checkout is untrusted code under review, so lock the child down: --restricted ignores
   // user/project/local settings (no repo hooks or allow rules, none of your pre-approved
   // tools), --strict-mcp-config with no config loads no MCP servers, and dontAsk denies
   // anything outside the file-editing and inspection allowlist instead of prompting.
-  const args = workflow
+  const args = coordinator
     ? [
         '-p',
         '--output-format',
         'stream-json',
         '--verbose',
         '--include-partial-messages',
-        '--dangerously-skip-permissions',
-        '--append-system-prompt',
-        system,
-        ...workflow.addDirs.flatMap((dir) => ['--add-dir', dir]),
-      ]
-    : [
-        '-p',
-        '--output-format',
-        'stream-json',
-        '--verbose',
-        '--include-partial-messages',
         '--restricted',
-        '--tools',
-        'Read,Grep,Glob,Edit,Write,Bash',
         '--strict-mcp-config',
+        '--tools',
+        '',
         '--permission-mode',
         'dontAsk',
-        '--allowedTools',
-        ALLOWED_TOOLS,
         '--append-system-prompt',
         system,
-      ];
+      ]
+    : workflow
+      ? [
+          '-p',
+          '--output-format',
+          'stream-json',
+          '--verbose',
+          '--include-partial-messages',
+          '--dangerously-skip-permissions',
+          '--append-system-prompt',
+          system,
+          ...workflow.addDirs.flatMap((dir) => ['--add-dir', dir]),
+        ]
+      : [
+          '-p',
+          '--output-format',
+          'stream-json',
+          '--verbose',
+          '--include-partial-messages',
+          '--restricted',
+          '--tools',
+          'Read,Grep,Glob,Edit,Write,Bash',
+          '--strict-mcp-config',
+          '--permission-mode',
+          'dontAsk',
+          '--allowedTools',
+          ALLOWED_TOOLS,
+          '--append-system-prompt',
+          system,
+        ];
   if (workflow?.reasoningEffort) args.push('--effort', workflow.reasoningEffort === 'xhigh' ? 'high' : workflow.reasoningEffort);
   if (agent.model) args.push('--model', agent.model);
   if (sessionId) args.push('--resume', sessionId);
@@ -77,7 +93,7 @@ export const claude: Driver = async ({ agent, cwd, system, prompt, sessionId, hi
   const r = await runCli(CLI.claude, args, {
     cwd,
     signal,
-    processGroup: !!workflow,
+    processGroup: !!workflow || !!coordinator,
     stdin: sessionId ? prompt : transcript(history) + prompt,
     onLine(line) {
       let ev: StreamLine;

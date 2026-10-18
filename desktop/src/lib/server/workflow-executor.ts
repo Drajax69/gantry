@@ -7,7 +7,7 @@ import { HOME, git, withLock } from './exec';
 import { drivers, findAgent, getAgent } from './agents';
 import { ticketContext } from './ticket-chat';
 import { conversationFor, openWorkflowConversation } from './ticket-conversations';
-import { nextNode, parseOutcome, finishAttempt, resetFrom, type Execution, type Attempt } from './workflow-state';
+import { nextNode, parseOutcome, finishAttempt, resetFrom, applyRoute, type Execution, type Attempt } from './workflow-state';
 import type { WorkflowRun } from '../../../../packages/shared/src/workflow';
 
 const root = path.join(HOME, 'workflow-runs');
@@ -138,6 +138,10 @@ export async function controlExecution(id: string, action: string, nodeId?: stri
           run.steps[node.id] = 'done';
         } else {
           run.steps[node.id] = 'pending';
+          if (run.graph.edges !== undefined) {
+            run.activeNodeId = node.id;
+            run.routing = undefined;
+          }
         }
         run.state = 'running';
         run.message = message.trim() || 'User confirmed continuation.';
@@ -147,6 +151,10 @@ export async function controlExecution(id: string, action: string, nodeId?: stri
         const selected = run.graph.nodes.find((n) => n.id === nodeId);
         if (selected) selected.maxAttempts = Math.max(selected.maxAttempts ?? 3, run.attempts.filter((a) => a.nodeId === nodeId).length + 1);
         resetFrom(run, nodeId);
+        if (run.graph.edges !== undefined) {
+          run.activeNodeId = nodeId;
+          run.routing = undefined;
+        }
         run.state = 'running';
         run.message = message || 'Retry requested by user.';
       } else throw new Error('Unknown workflow action.');
@@ -159,6 +167,14 @@ export async function controlExecution(id: string, action: string, nodeId?: stri
 async function createExecution(id: string, projectId: string): Promise<Execution> {
   const snapshot = (await runtime(`tickets/${id}/workflow`)) as WorkflowRun | null;
   if (!snapshot) throw new Error('Copy the workspace graph to this ticket first.');
+  if (!snapshot.graph.nodes.length) throw new Error('Add nodes to this graph before starting.');
+  if (snapshot.graph.edges !== undefined) {
+    const reached = new Set([snapshot.graph.entryNodeId]);
+    for (let i = 0; i < snapshot.graph.nodes.length; i++) for (const edge of snapshot.graph.edges) if (reached.has(edge.source)) reached.add(edge.target);
+    const isolated = snapshot.graph.nodes.filter((n) => !reached.has(n.id));
+    if (isolated.length) throw new Error(`Connect ${isolated.map((n) => n.label).join(', ')} to the start node before running.`);
+  }
+
   if (Object.values(snapshot.states).some((s) => s.state === 'running')) throw new Error('A graph step is already running. Stop that agent first.');
   const defaultProviderId = getAgent().id;
   for (const node of snapshot.graph.nodes)
@@ -166,6 +182,7 @@ async function createExecution(id: string, projectId: string): Promise<Execution
   return {
     ticketId: id,
     projectId,
+    activeNodeId: snapshot.graph.edges !== undefined ? snapshot.graph.entryNodeId : undefined,
     graph: {
       ...structuredClone(snapshot.graph),
       nodes: snapshot.graph.nodes.map((node) => {
@@ -184,6 +201,52 @@ async function createExecution(id: string, projectId: string): Promise<Execution
 async function heads(checkouts: { repositoryId: string; path: string }[]) {
   return Object.fromEntries(await Promise.all(checkouts.map(async (c) => [c.repositoryId, (await git(c.path, 'rev-parse', 'HEAD')).trim()])));
 }
+async function routeHandover(run: Execution, cwd: string, signal: AbortSignal) {
+  const provider = findAgent(run.defaultProviderId);
+  if (!provider) throw new Error('The coordinator provider was removed. Restore it before resuming.');
+  let output = '',
+    failure = '';
+  const prompt = JSON.stringify({
+    ticketId: run.ticketId,
+    latest: run.routing,
+    nodes: run.graph.nodes.map((n) => ({ id: n.id, name: n.label, instructions: n.instructions })),
+    edges: run.graph.edges,
+    states: run.steps,
+    history: run.attempts.slice(-20).map((a) => ({ nodeId: a.nodeId, outcome: a.state, summary: a.summary })),
+    previousRoutes: run.routes?.slice(-20),
+    userReplies: run.replies,
+  });
+  await drivers[provider.kind]({
+    agent: provider,
+    cwd,
+    sessionId: run.coordinatorSessionId ?? null,
+    history: [],
+    coordinator: true,
+    signal: AbortSignal.any([signal, AbortSignal.timeout(120000)]),
+    system: `You coordinate a Gantry graph. Decide which connection to follow from the graph and the agents' handovers supplied as JSON data. Do not run tools or edit files. The user's edge labels are routing conditions. Evaluate them against the actual results, not keywords alone. Pick exactly one configured edgeId; its source must be a completed node or the latest node requesting corrections. A previous completed node can have unfinished sibling paths: visit those before a downstream join. For converging paths, finish all required branches before the join; mutually exclusive conditions represent alternatives. Never bypass validation because a sibling route remains available. On changes_requested, only choose an edge from that requesting node. Revisit a completed node only when a condition calls for rework. Never repeat a successful path without a reason. If no condition fits or evidence is missing, return wait:true. A terminal node has no outgoing edges; only finish after reaching one successfully AND all necessary reachable paths have completed. Finish with exactly one line: GANTRY_ROUTE {"edgeId":"configured-edge-id","reason":"Why this condition applies"}. To finish use edgeId:null with a reason. To pause use {"wait":true,"reason":"What needs attention"}.`,
+    prompt,
+    hooks: {
+      text(t) {
+        output = (output + t).slice(-100000);
+      },
+      tool() {
+        failure = 'Coordinator attempted to use tools.';
+      },
+      session(id) {
+        run.coordinatorSessionId = id;
+        save(run);
+      },
+      cost() {},
+      error(e) {
+        failure = e;
+      },
+    },
+  });
+  if (signal.aborted) throw new Error('Paused during routing.');
+  if (failure) throw new Error(failure);
+  applyRoute(run, output);
+  save(run);
+}
 async function runStage(run: Execution, node: Execution['graph']['nodes'][number], controller: AbortController) {
   let attempt: Attempt | undefined;
   let timeout: NodeJS.Timeout | undefined;
@@ -193,6 +256,10 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
     if (controller.signal.aborted) throw new Error('Paused.');
     const cwd = work.checkouts[0]?.path;
     if (!cwd) throw new Error('No prepared checkout.');
+    if (run.routing) {
+      await routeHandover(run, cwd, controller.signal);
+      return;
+    }
     for (const checkout of work.checkouts)
       if ((await git(checkout.path, 'branch', '--show-current')).trim() !== work.ticket.branch)
         throw new Error('A checkout changed branches. Restore the ticket branch before continuing.');
@@ -273,14 +340,16 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
     attempt.commits = await heads(work.checkouts);
     if (controller.signal.aborted) throw new Error('Stopped before stage handover.');
     finishAttempt(run, attempt, result.outcome, result.summary);
+    save(run);
+    if (run.routing) await routeHandover(run, cwd, controller.signal);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (attempt) {
+    if (attempt && !run.routing) {
       attempt.state = controller.signal.aborted ? 'interrupted' : 'failed';
       attempt.summary = message;
       attempt.endedAt = Date.now();
     }
-    run.steps[node.id] = 'failed';
+    if (!run.routing) run.steps[node.id] = 'failed';
     if (run.state !== 'paused') run.state = 'waiting';
     run.message = message;
   } finally {
@@ -343,7 +412,7 @@ export async function tick() {
         continue;
       }
       if (engine.active.size >= 10) break;
-      const node = nextNode(run);
+      const node = run.routing ? run.graph.nodes.find((n) => n.id === run.routing!.nodeId) : nextNode(run);
       if (!node) {
         if (run.graph.nodes.every((n) => run.steps[n.id] === 'done')) run.state = 'complete';
         else {
@@ -360,7 +429,7 @@ export async function tick() {
         save(run);
         continue;
       }
-      if (run.attempts.filter((a) => a.nodeId === node.id).length >= (node.maxAttempts ?? 3)) {
+      if (!run.routing && run.attempts.filter((a) => a.nodeId === node.id).length >= (node.maxAttempts ?? 3)) {
         run.steps[node.id] = 'failed';
         run.state = 'waiting';
         run.message = `${node.label} reached its attempt limit.`;
@@ -382,7 +451,7 @@ export async function tick() {
       const controller = new AbortController();
       engine.active.set(run.ticketId, controller);
       engine.runs.set(run.ticketId, run);
-      run.steps[node.id] = 'running';
+      if (!run.routing) run.steps[node.id] = 'running';
       save(run);
       void runStage(run, node, controller);
     }

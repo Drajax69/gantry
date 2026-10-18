@@ -32,7 +32,7 @@ const MAX_ROUNDS = 30;
  * Ollama, LM Studio, vLLM… The conversation is kept by PR Lens, and the model gets repository inspection and editing
  * repo tools that run here.
  */
-export const openai: Driver = async ({ agent, cwd, system, prompt, history, hooks, signal, workflow }) => {
+export const openai: Driver = async ({ agent, cwd, system, prompt, history, hooks, signal, workflow, coordinator }) => {
   const messages: Msg[] = [
     { role: 'system', content: `${system}\nUse the tools to read the code; you can't see it otherwise.` },
     ...history.map((t): Msg => (t.role === 'user' ? { role: 'user', content: t.text } : { role: 'assistant', content: t.text })),
@@ -52,19 +52,21 @@ export const openai: Driver = async ({ agent, cwd, system, prompt, history, hook
         body: JSON.stringify({
           model: agent.model,
           messages,
-          tools: workflow
-            ? [
-                ...TOOL_SPECS,
-                {
-                  type: 'function',
-                  function: {
-                    name: 'workflow_shell',
-                    description: 'Run a command in the ticket checkout for implementation, tests, or Git operations.',
-                    parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'], additionalProperties: false },
+          tools: coordinator
+            ? undefined
+            : workflow
+              ? [
+                  ...TOOL_SPECS,
+                  {
+                    type: 'function',
+                    function: {
+                      name: 'workflow_shell',
+                      description: 'Run a command in the ticket checkout for implementation, tests, or Git operations.',
+                      parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'], additionalProperties: false },
+                    },
                   },
-                },
-              ]
-            : TOOL_SPECS,
+                ]
+              : TOOL_SPECS,
           ...(workflow?.reasoningEffort ? { reasoning_effort: workflow.reasoningEffort } : {}),
           stream: true,
         }),
@@ -112,6 +114,10 @@ export const openai: Driver = async ({ agent, cwd, system, prompt, history, hook
       }
 
       const used = calls.filter(Boolean);
+      if (coordinator && used.length) {
+        hooks.error('Coordinator attempted to use tools.');
+        return;
+      }
       if (!used.length) return;
       messages.push({ role: 'assistant', content: text || null, tool_calls: used });
       for (const c of used) {
