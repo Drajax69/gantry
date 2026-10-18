@@ -420,6 +420,7 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
         <ResizablePanel id="code" minSize={320}>
           <FileView
             target={t}
+            onSaved={() => { setSource("local"); setFiles({}); setFileError({}); setAllFiles(null); void api.localChanges(id).then(setLocal, (e: Error) => toast.error(e.message)); }}
             local={source === "local"}
             path={current}
             data={fileKey ? files[fileKey] ?? null : null}

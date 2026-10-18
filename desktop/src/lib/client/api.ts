@@ -29,6 +29,8 @@ export const api = {
     call<TargetResponse>(`/api/target?${q(refresh ? { id, refresh: "1" } : { id })}`),
   file: (id: string, path: string, mode: "diff" | "full", source = "pr") =>
     call<FileResponse>(`/api/file?${q({ id, path, mode, source })}`),
+  editFile: (id: string, path: string) => call<{ text: string; revision: string }>(`/api/file-edit?${q({ id, path })}`),
+  saveFile: (id: string, path: string, text: string, revision: string) => call<{ text: string; revision: string }>("/api/file-edit", post({ id, path, text, revision })),
   tree: (id: string, source = "pr") => call<string[]>(`/api/tree?${q({ id, source })}`),
   localChanges: (id: string) => call<LocalChanges>(`/api/local-changes?${q({ id })}`),
   publish: (id: string, snapshot: LocalChanges, message: string) => call<{commit:string;branch:string}>("/api/local-changes", post({id, tree:snapshot.tree, head:snapshot.head, message})),

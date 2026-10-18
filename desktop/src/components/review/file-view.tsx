@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { Thread } from "@/lib/client/threads";
 import type { Anchor, FileResponse, Quote, ReviewThread, TargetInfo, Tok } from "@/lib/types";
+import { FileEditor } from "./file-editor";
 import { CodeLine } from "./code";
 import { ComposerBox, GitHubThread, InlineComposer, InlineThread, QuoteBlock } from "./thread";
 
@@ -38,6 +39,7 @@ type Row =
 interface Props {
   target: TargetInfo;
   local?: boolean;
+  onSaved: () => void;
   path: string | null;
   data: FileResponse | null;
   loading: boolean;
@@ -68,6 +70,7 @@ const lineKey = (side: "new" | "old", n: number) => `${side}-${n}`;
 
 export function FileView(props: Props) {
   const { target, path, data, loading, error, mode, onMode, draft, draftQuote, onDraft, threads, ghThreads, collapsed, onToggleThread, agentName, onAsk, onReply, onStop, onDelete, onOpenLocation, focus } = props;
+  const [editing, setEditing] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const [viewWidth, setViewWidth] = useState(0);
   // Where a drag across line numbers started.
@@ -107,7 +110,7 @@ export function FileView(props: Props) {
     const ro = new ResizeObserver(() => setViewWidth(el.clientWidth));
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [editing]);
 
   useEffect(() => {
     if (!focus || !data || focus.file !== path) return;
@@ -184,6 +187,8 @@ export function FileView(props: Props) {
     return () => document.removeEventListener("selectionchange", check);
   }, [textAsk]);
 
+  if (editing) return <FileEditor id={target.id} path={editing} agentName={agentName} onAsk={onAsk} onSaved={props.onSaved} onClose={() => setEditing(null)} />;
+
   if (!path) {
     return <Empty>Pick a file on the left.</Empty>;
   }
@@ -198,6 +203,7 @@ export function FileView(props: Props) {
           {file?.oldPath && file.oldPath !== path && <span className="text-muted-foreground">{file.oldPath} → </span>}
           {path}
         </span>
+        {data && !data.tooLarge && !file?.binary && file?.status !== "D" && <Button size="xs" variant="outline" onClick={() => setEditing(path)}>Edit file</Button>}
         {file && <Badge variant="secondary">{STATUS_LABEL[file.status]}</Badge>}
         {file && file.status !== "D" && (
           <div className="flex rounded-md bg-muted p-0.5 text-xs">
