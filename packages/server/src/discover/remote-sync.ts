@@ -70,6 +70,7 @@ export class RemoteSync {
       for (const project of await this.projects()) {
         await this.syncProject(project, completedBranches);
       }
+      await this.onCompleteTickets(completedBranches);
       this.lastSyncAt = Date.now();
       this.lastError = null;
     } catch (error) {
@@ -121,7 +122,11 @@ export class RemoteSync {
       const evidence: PreviewEvidence = {};
       const changed: { repositoryId: string; evidence: string | null }[] = [];
       for (const checkout of checkouts) {
-        if (checkout.is_primary || checkout.is_fallback || !checkout.head) continue;
+        if (checkout.is_primary || checkout.is_fallback) continue;
+        if (!checkout.head) {
+          changed.push({ repositoryId: checkout.repository_id, evidence: null });
+          continue;
+        }
         const snapshot = this.snapshots.get(`${projectId}:${checkout.repository_id}`);
         const remembered = previousProofs[checkout.repository_id];
         if (remembered && remembered.head === checkout.head && remembered.path === checkout.path && remembered.branch === checkout.branch) {
@@ -130,7 +135,10 @@ export class RemoteSync {
           changed.push({ repositoryId: checkout.repository_id, evidence: remembered.evidence });
           continue;
         }
-        if (!snapshot?.head) continue; // no successful fetch yet: keep the preview running
+        if (!snapshot?.head) {
+          changed.push({ repositoryId: checkout.repository_id, evidence: null });
+          continue; // no successful fetch yet: keep the preview running
+        }
         const pulls = snapshot.pullRefs;
         const pr = matchPull({ head: checkout.head }, pulls, previousNumbers[checkout.repository_id] ?? null, snapshot.head);
         let evidenceText: string | null = null;
