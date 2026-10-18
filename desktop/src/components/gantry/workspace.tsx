@@ -48,6 +48,8 @@ export function GantryWorkspace() {
   const [adding, setAdding] = useState(false);
   const [workspace, setWorkspace] = useState("");
   const [busy, setBusy] = useState(false);
+  const pendingMoves = useRef(new Set<string>());
+  const [movingTickets, setMovingTickets] = useState<Set<string>>(new Set());
   const [log, setLog] = useState<{ title: string; text: string } | null>(null);
   const loading = useRef(false);
   const mounted = useRef(true);
@@ -123,8 +125,21 @@ export function GantryWorkspace() {
   async function moveTicket(id: string, status: string) {
     setDragging(null); setDropColumn(null);
     const moving = tickets.find(t => t.id === id);
-    if (!moving || moving.status === status) return;
-    await act(async () => { await gantry.updateTicket(id, { status }); await refresh(); if (status === "in_progress") await openTicketChat(id); }, `Moved to ${labels[status]}`);
+    if (!moving || moving.status === status || pendingMoves.current.has(id)) return;
+    pendingMoves.current.add(id);
+    setMovingTickets(new Set(pendingMoves.current));
+    try {
+      await gantry.updateTicket(id, { status });
+      // Only update the moved ticket: a slow request must not change navigation
+      // or block another ticket's conversation/review.
+      setData(current => current ? { ...current, tickets: current.tickets.map(t => t.id === id ? { ...t, status } : t) } : current);
+      toast.success(`Moved to ${labels[status]}`);
+      await refresh();
+    } catch (e) { toast.error((e as Error).message); }
+    finally {
+      pendingMoves.current.delete(id);
+      setMovingTickets(new Set(pendingMoves.current));
+    }
   }
   const activeProjectId = project?.id;
   useEffect(() => {
@@ -199,7 +214,7 @@ export function GantryWorkspace() {
               return <section key={status} className={cn("gantry-column min-h-64 min-w-0 p-4 transition-colors", dropColumn === status && "bg-muted")} aria-label={labels[status]} onDragOver={e => { if (dragging && !busy) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropColumn(status); } }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropColumn(null); }} onDrop={e => { e.preventDefault(); if (!busy) void moveTicket(e.dataTransfer.getData("application/x-gantry-ticket"), status); }}>
                 <h2 className={cn("mb-4 flex items-center gap-2 text-sm font-medium", status === "backlog" ? "text-violet-700 dark:text-violet-300" : status === "in_progress" ? "text-sky-700 dark:text-sky-300" : "text-emerald-700 dark:text-emerald-300")}>
                   {status === "backlog" ? <CircleDashedIcon className="size-4" /> : status === "in_progress" ? <CircleDotIcon className="size-4" /> : <CircleCheckIcon className="size-4" />}{labels[status]}<span className="ml-auto rounded-md bg-current/10 px-2 py-0.5 text-xs tabular-nums">{column.length}</span></h2>
-                <div className="space-y-3">{column.map(t => <article key={t.id} style={ticketColor(t.id)} data-ticket-id={t.id} data-done={t.status === "done" || undefined} draggable={!busy} onDragStart={e => { e.dataTransfer.setData("application/x-gantry-ticket", t.id); e.dataTransfer.effectAllowed = "move"; setDragging(t.id); }} onDragEnd={() => { setDragging(null); setDropColumn(null); }} className={cn("gantry-ticket rounded-lg border", selected === t.id && "gantry-ticket-selected", dragging === t.id && "opacity-50")}>
+                <div className="space-y-3">{column.map(t => <article key={t.id} style={ticketColor(t.id)} data-ticket-id={t.id} data-done={t.status === "done" || undefined} draggable={!busy && !movingTickets.has(t.id)} onDragStart={e => { e.dataTransfer.setData("application/x-gantry-ticket", t.id); e.dataTransfer.effectAllowed = "move"; setDragging(t.id); }} onDragEnd={() => { setDragging(null); setDropColumn(null); }} className={cn("gantry-ticket rounded-lg border", selected === t.id && "gantry-ticket-selected", dragging === t.id && "opacity-50")}>
                   <button onClick={() => openTicket(t.id)} className="flex w-full flex-col gap-3 p-3 text-left focus-visible:outline-2 focus-visible:outline-ring" aria-pressed={selected === t.id}>
                     <span className="flex items-start gap-2 break-words text-sm font-semibold"><span aria-hidden="true" className="gantry-ticket-dot mt-1 size-2 shrink-0 rounded-full" />{t.title}</span>
                     <span className="flex max-w-full items-center gap-1.5 text-xs text-muted-foreground"><GitBranchIcon className="size-3 shrink-0" /><span className="truncate font-mono">{t.branch}</span></span>
@@ -217,7 +232,7 @@ export function GantryWorkspace() {
             {log && <section className="border-b p-6"><div className="mb-3 flex items-center justify-between gap-3"><h2 className="font-medium">{log.title}</h2><Button variant="ghost" size="sm" onClick={() => setLog(null)}>Close log</Button></div><pre className="max-h-80 overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">{log.text || "No output yet."}</pre></section>}
             {(creating || ticketTab === "details") && <section id="ticket-details" aria-label="Ticket details">
             <div className="max-w-3xl">{creating ? <TicketForm key={`new-${project.id}`} project={project} busy={busy} onCancel={() => setCreating(false)} onSave={async (input) => { await act(async () => { const t = await gantry.createTicket(project.id, input); setSelected(t.id); setCreating(false); }); }} /> : ticket &&
-              <TicketDetail key={ticket.id} editing={editingTicket} setEditing={setEditingTicket} ticket={ticket} project={project} busy={busy} act={act} onReview={(urls) => review(urls, ticket)} onLog={showLog} onDeleted={closeTicket} onStage={status => moveTicket(ticket.id, status)} />}</div></section>}
+              <TicketDetail key={ticket.id} editing={editingTicket} setEditing={setEditingTicket} ticket={ticket} project={project} busy={busy || movingTickets.has(ticket.id)} act={act} onReview={(urls) => review(urls, ticket)} onLog={showLog} onDeleted={closeTicket} onStage={status => moveTicket(ticket.id, status)} />}</div></section>}
         {ticket && ticketTab === "preview" && ticket.status === "in_progress" && <section id="ticket-preview" aria-label="Ticket preview" className="divide-y"><h3 className="pb-4 text-sm font-medium">Preview</h3>{ticketPreviews.map((p) => <section key={p.id} className="space-y-4 p-6">
           <div className="flex flex-wrap items-center gap-3"><GitBranchIcon className="size-4 text-muted-foreground" /><h2 className="min-w-0 break-all font-medium">{p.isPrimary ? "Main workspace" : p.branch}</h2><State value={p.paused ? "paused" : p.status} /><div className="flex-1" />
             {!p.archived && !p.retired && !p.removed ? <><Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => gantry.previewAction(p.id, p.paused ? "resume" : "pause"))}>{p.paused ? "Resume" : "Pause"}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => gantry.previewAction(p.id, "restart"))}>Restart</Button></> : <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => gantry.previewAction(p.id, "restore"))}>Restore</Button>}
