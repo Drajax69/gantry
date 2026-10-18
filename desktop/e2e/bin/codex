@@ -7,6 +7,11 @@ if (process.argv[2] === "--version") {
   process.exit(0);
 }
 if (process.argv[2] === "queue") {
+  const threads = JSON.parse(fs.readFileSync(path.join(process.env.PR_LENS_HOME, "codex-threads.json"), "utf8"));
+  const thread = threads.find(t => t.id === process.argv[process.argv.indexOf("--thread") + 1]);
+  if (thread?.settings?.sandboxPolicy?.type !== "dangerFullAccess" || thread.settings.approvalPolicy !== "never") {
+    throw new Error("Ticket work must not be queued before Full Access is saved");
+  }
   fs.appendFileSync(path.join(process.env.PR_LENS_HOME, "codex-queued.jsonl"), JSON.stringify({args:process.argv.slice(2)}) + "\n");
   process.exit(0);
 }
@@ -24,6 +29,13 @@ if (process.argv[2] === "app-server") {
       const thread = {id,path:path.join(process.env.PR_LENS_HOME, id+".jsonl"),...message.params};
       threads.push(thread); fs.writeFileSync(threadsFile,JSON.stringify(threads));
       result = {thread};
+    }
+    if (message.method === "thread/settings/update") {
+      const threads = JSON.parse(fs.readFileSync(threadsFile, "utf8"));
+      const thread = threads.find(t => t.id === message.params.threadId);
+      if (!thread || !fs.existsSync(thread.path)) throw new Error("Settings require durable history");
+      thread.settings = message.params;
+      fs.writeFileSync(threadsFile, JSON.stringify(threads));
     }
     if (message.method === "thread/read" || message.method === "thread/inject_items") {
       const threads=JSON.parse(fs.readFileSync(threadsFile,"utf8"));

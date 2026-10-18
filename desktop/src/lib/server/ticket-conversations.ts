@@ -105,14 +105,18 @@ async function createCodexThread(record: Omit<TicketConversation, "sessionId">, 
     }
     const response = await call("thread/start", {
       cwd: record.cwd, ephemeral: false, developerInstructions: record.context,
-      sandbox: "workspace-write", approvalPolicy: "on-request",
+      sandbox: "danger-full-access", approvalPolicy: "never",
       ...(record.model ? { model: record.model } : {}),
-      config: { "sandbox_workspace_write.writable_roots": record.checkouts.map(c => c.path) },
     });
     const id = (response.thread as { id?: string })?.id;
     if (!id || !/^[\w-]+$/.test(id)) throw new Error("Codex did not return a conversation ID.");
     // thread/start is lazy: materialize history without starting model execution.
     await call("thread/inject_items", { threadId: id, items: [{ type: "message", role: "user", content: [{ type: "input_text", text: record.context }] }] });
+    // Persist the policy for the native app's later resume, before queuing any work.
+    // Creation-time overrides alone do not establish saved next-turn settings.
+    await call("thread/settings/update", {
+      threadId: id, sandboxPolicy: { type: "dangerFullAccess" }, approvalPolicy: "never",
+    });
     const rollout = (response.thread as { path?: string })?.path;
     if (!rollout) throw new Error("Codex did not return a durable conversation path.");
     await fs.promises.access(rollout);
@@ -145,7 +149,7 @@ async function launch(record: TicketConversation) {
   }
   const args = record.provider === "claude"
     ? [CLI.claude, ...(claudeSessionExists(record.sessionId) ? ["--resume", record.sessionId] : ["--session-id", record.sessionId]), "--append-system-prompt", record.context, ...(record.model ? ["--model", record.model] : []), ...record.checkouts.flatMap(c => ["--add-dir", c.path]), ...(!record.promptPrefilled && !claudeSessionExists(record.sessionId) ? ["--", record.context] : [])]
-    : [CLI.codex, "resume", record.sessionId, "-C", record.cwd];
+    : [CLI.codex, "resume", record.sessionId, "-C", record.cwd, "--sandbox", "danger-full-access", "--ask-for-approval", "never"];
   if (process.platform === "darwin") {
     const command = `cd ${quote(record.cwd)} && ${["env", `PATH=${process.env.PATH || ""}`, ...args].map(quote).join(" ")}`;
     // Arguments enter AppleScript as data, then shell arguments are individually quoted.
