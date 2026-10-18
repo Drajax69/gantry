@@ -1,4 +1,4 @@
-import { newId, isValidBranchName, branchFor } from '@gantry/shared';
+import { newId, isValidBranchName, branchFor, newWorkflow, type Workflow } from '@gantry/shared';
 import type { Database } from '../db/db.js';
 
 /**
@@ -20,6 +20,7 @@ export interface TicketRow {
   additions: string | null;
   position: number;
   active_run_id: string | null;
+  workflow_json?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -72,7 +73,7 @@ export class TicketStore {
     return (this.db.prepare('SELECT * FROM tickets WHERE id=?').get(id) as TicketRow | undefined) ?? null;
   }
 
-  create(projectId: string, input: TicketInput, scopes: string[], branchPrefix: string): TicketRow {
+  create(projectId: string, input: TicketInput, scopes: string[], branchPrefix: string, workflow?: Workflow): TicketRow {
     const validated = validateTicketInput(input, undefined, branchPrefix);
     if (scopes.length && !scopes.includes(validated.scope)) throw new TicketError(`Unknown ticket scope "${validated.scope}".`);
     const now = new Date().toISOString();
@@ -82,6 +83,7 @@ export class TicketStore {
       ...validated,
       position: 0,
       active_run_id: null,
+      workflow_json: JSON.stringify(newWorkflow(workflow)),
       created_at: now,
       updated_at: now,
     };
@@ -89,10 +91,10 @@ export class TicketStore {
     // take position 0 and shift the rest down.
     this.db
       .prepare(
-        `INSERT INTO tickets (id, project_id, title, description, status, scope, branch, additions, position, active_run_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tickets (id, project_id, title, description, status, scope, branch, additions, position, active_run_id, created_at, updated_at, workflow_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(ticket.id, ticket.project_id, ticket.title, ticket.description, ticket.status, ticket.scope, ticket.branch, ticket.additions, ticket.position, null, ticket.created_at, ticket.updated_at);
+      .run(ticket.id, ticket.project_id, ticket.title, ticket.description, ticket.status, ticket.scope, ticket.branch, ticket.additions, ticket.position, null, ticket.created_at, ticket.updated_at, ticket.workflow_json!);
     this.db.prepare('UPDATE tickets SET position = position + 1 WHERE project_id=? AND status=? AND id != ?').run(projectId, ticket.status, ticket.id);
     return this.get(ticket.id)!;
   }

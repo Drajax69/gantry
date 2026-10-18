@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { workflowSchema } from '../workflow.js';
 
 /**
  * Project configuration schema (`gantry.yaml` at a workspace root).
@@ -188,6 +189,7 @@ export const projectSchema = z.object({
   services: z.array(serviceSchema).default([]),
   environments: z.array(environmentSchema).default([]),
   promptTemplates: z.array(promptTemplateSchema).default([]),
+  workflow: workflowSchema.optional(),
   /** Ticket scopes offered in the UI and rendered into prompts. */
   scopes: z.array(ticketScopeSchema).default(defaultTicketScopes),
   agents: z.array(agentConfigSchema).default([]),

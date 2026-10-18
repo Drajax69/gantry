@@ -16,7 +16,7 @@ import { gantry, type ProjectView, type StatusView, type TicketView } from "@/li
 import { useTicketColors } from "./ticket-colors";
 import { Workspace as ReviewWorkspace } from "@/components/space/workspace";
 import { PreviewPane } from "./preview-pane";
-import { WorkspacePromptDialog } from "./workspace-prompt-dialog";
+import { WorkspaceGraphDialog, TicketWorkflow, graphSummary } from "./workflow";
 import { DeleteTicketDialog } from "./delete-ticket-dialog";
 import { TicketDialog } from "./ticket-dialog";
 import { TicketConversation, ticketChatRequest, openTicketChat } from "./ticket-chat";
@@ -155,7 +155,7 @@ export function GantryWorkspace() {
   const changeArea = (next: Area) => { setArea(next); setLog(null); setCreating(false); };
 
   return <div className="gantry-workspace flex h-full min-h-0 flex-col bg-background">
-    {promptOpen && project && <WorkspacePromptDialog project={project} onClose={() => setPromptOpen(false)} />}
+    {promptOpen && project && <WorkspaceGraphDialog project={project} onClose={() => setPromptOpen(false)} />}
     {deleting && <DeleteTicketDialog title={deleting.title} busy={busy} onCancel={() => setDeleting(null)} onDelete={() => void act(() => gantry.deleteTicket(deleting.id), "Ticket deleted").then(ok => { if (ok) { if (selected === deleting.id) closeTicket(); setDeleting(null); } })} />}
     <header className="app-bar flex h-12 shrink-0 items-center gap-3 border-b px-4">
       <span className="flex items-center gap-2 text-sm font-semibold"><LayoutListIcon className="size-5 text-violet-600 dark:text-violet-300" />Gantry</span>
@@ -176,7 +176,7 @@ export function GantryWorkspace() {
         </nav>
         {project && <nav aria-label="Previews" className="space-y-1"><h2 className="mb-2 flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground"><MonitorIcon className="size-4" />Previews</h2>{previewEntries.map(entry => <Button key={entry.id} variant={area === "previews" && activePreview.id === entry.id ? "secondary" : "ghost"} className={cn("h-auto min-h-8 w-full justify-start pl-6 text-left", area === "previews" && activePreview.id === entry.id && "gantry-nav-reviews")} aria-current={area === "previews" && activePreview.id === entry.id ? "page" : undefined} onClick={() => { setPreviewTicket(entry.id); changeArea("previews"); closeTicket(); }}><span className="min-w-0 whitespace-normal break-words">{entry.name}</span></Button>)}</nav>}
         <div className="mt-auto space-y-3">
-          {project && <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setPromptOpen(true)}><MessageSquareIcon />Workspace prompt</Button>}
+          {project && <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setPromptOpen(true)}><GitBranchIcon />Workspace graph</Button>}
           <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setAdding(!adding)}><PlusIcon /> Add workspace</Button>
           {project && <p className="break-all text-xs leading-relaxed text-muted-foreground">{project.workspace}</p>}
         </div>
@@ -196,6 +196,7 @@ export function GantryWorkspace() {
         </form>}
         {!data && !error && <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2Icon className="size-4 animate-spin" /> Loading your workspaces…</div>}
         {data && !project && <div className="max-w-xl space-y-3 p-8"><h2 className="text-lg font-medium">Connect your first workspace</h2><p className="text-sm leading-relaxed text-muted-foreground">Choose a Git repository or a folder of repositories. Gantry creates local configuration automatically. Configure your provider once in Settings, then start a ticket.</p><Button onClick={() => setAdding(true)}>Add workspace</Button></div>}
+        {area === "tickets" && tickets.some(t => t.status !== "done" && graphSummary(t.workflow)?.waiting) && <div className="flex flex-wrap items-center gap-2 border-b bg-amber-50 px-6 py-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><span className="font-medium">Waiting on you</span>{tickets.filter(t => t.status !== "done" && graphSummary(t.workflow)?.waiting).map(t => <Button key={t.id} size="sm" variant="ghost" onClick={() => openTicket(t.id)}>{t.title}</Button>)}</div>}
         {area !== "previews" && jobs.length > 0 && <details className="border-b px-6 py-3 text-xs text-muted-foreground"><summary className="cursor-pointer">Activity · {jobs.length} recent jobs</summary><div className="mt-3 space-y-2">{jobs.map((j) => <div key={j.id} className="flex flex-wrap items-center gap-2"><State value={j.state} /><span>{j.kind} · {j.detail || j.phase || j.error || "Queued"}</span>{j.error && <span className="text-destructive">{j.error}</span>}</div>)}</div></details>}
 
         {project && previewEntries.map(entry => {
@@ -218,6 +219,7 @@ export function GantryWorkspace() {
                   <button onClick={() => openTicket(t.id)} className="flex w-full flex-col gap-3 p-3 text-left focus-visible:outline-2 focus-visible:outline-ring" aria-pressed={selected === t.id}>
                     <span className="flex items-start gap-2 break-words text-sm font-semibold"><span aria-hidden="true" className="gantry-ticket-dot mt-1 size-2 shrink-0 rounded-full" />{t.title}</span>
                     <span className="flex max-w-full items-center gap-1.5 text-xs text-muted-foreground"><GitBranchIcon className="size-3 shrink-0" /><span className="truncate font-mono">{t.branch}</span></span>
+                    {t.workflow && <span className={cn("text-xs", graphSummary(t.workflow)?.waiting ? "font-semibold text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>{graphSummary(t.workflow)?.text}</span>}
                     {t.run && <span className="text-xs text-muted-foreground">{t.run.agent} · {t.run.state}</span>}
                   </button>
                   <div className="gantry-ticket-actions flex flex-wrap gap-1 border-t px-2 py-1"><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, false, true)} aria-label={`Edit ticket ${t.title}`}>Edit</Button>{t.status === "in_progress" && <><Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => openTicketChat(t.id))} aria-label={`Open chat for ${t.title}`}><MessageSquareIcon />Open chat</Button><Button size="sm" variant="ghost" disabled={busy || !t.reviewSpaceId} onClick={() => void review([], t)} aria-label={`Open review space for ${t.title}`}><GitPullRequestIcon />Review<ArrowUpRightIcon /></Button><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, true)} aria-label={`Preview ${t.title}`}><MonitorIcon />Preview</Button></>}<Button size="sm" variant="ghost" className="ml-auto" disabled={busy || !!(t.run && ["starting", "running", "interrupting"].includes(t.run.state))} onClick={() => setDeleting(t)} aria-label={`Delete ticket ${t.title}`}><Trash2Icon />Delete</Button></div>
@@ -273,6 +275,7 @@ function TicketDetail({ ticket: t, project, busy, act, onReview, onLog, onDelete
   const running = t.run && ["starting", "running", "interrupting"].includes(t.run.state);
   if (editing) return <TicketForm project={project} ticket={t} busy={busy} onCancel={() => setEditing(false)} onSave={async (input) => { if (await act(() => gantry.updateTicket(t.id, input))) setEditing(false); }} />;
   return <div className="space-y-6">
+    <TicketWorkflow key={t.id} ticket={t} refresh={() => act(async () => {})} />
     <div className="space-y-3"><div className="flex items-start gap-3"><h2 className="min-w-0 flex-1 break-words text-lg font-semibold">{t.title}</h2><Button variant="ghost" size="sm" disabled={busy} onClick={() => { setEditing(true); }}>Edit</Button></div><p className="break-all font-mono text-xs text-muted-foreground">{t.branch}</p>
       <label className="flex items-center gap-3 text-sm">Stage<select className={selectClass} value={t.status} disabled={busy} onChange={(e) => void onStage(e.target.value)}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{t.description || "No notes added."}</p>

@@ -42,7 +42,7 @@ export async function ticketWorkspace(app: GantryApp, ticketId: string, prepare 
     });
     // Product repository variables must name the prepared worktrees, never the primary checkouts.
     for (const checkout of checkouts) vars[`repo.${checkout.repositoryId}`] = checkout.path;
-    prompt = renderPrompt(project, ticket, vars, { ticket, project, instructionFiles: await findInstructionFiles(project), agentNotes: '', ticketAdditions: ticket.additions }).prompt;
+    prompt = renderPrompt(project, ticket, vars, { workflowPort: app.ctx.settings.port, ticket, project, instructionFiles: await findInstructionFiles(project), agentNotes: '', ticketAdditions: ticket.additions }).prompt;
   }
   if (prepare && ticket.status === 'backlog') app.tickets.patch(ticketId, { status: 'in_progress' });
   return { ticket, prompt, project: { id: project.config.project.id, name: project.config.project.name, workspace: project.workspace }, checkouts };

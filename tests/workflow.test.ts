@@ -1,0 +1,138 @@
+import { describe, test, expect, afterAll } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { DEFAULT_WORKFLOW, newWorkflow, readySteps, workflowSchema, workflowSummary } from '../packages/shared/src/workflow.js';
+import { changeStep, replaceGraph, saveTicketWorkflow, ticketWorkflow } from '../packages/server/src/tickets/workflow.js';
+import { TicketStore } from '../packages/server/src/tickets/store.js';
+import { openDatabase } from '../packages/server/src/db/db.js';
+import { saveWorkspaceWorkflow } from '../packages/server/src/projects/workflow.js';
+import { loadProject } from '../packages/server/src/projects/registry.js';
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-workflow-test-'));
+afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+const fork = {
+  nodes: [
+    { id: 'plan', label: 'Plan', kind: 'agent' as const, instructions: '', dependsOn: [] },
+    { id: 'frontend', label: 'Frontend', kind: 'agent' as const, instructions: '', dependsOn: ['plan'] },
+    { id: 'backend', label: 'Backend', kind: 'agent' as const, instructions: '', dependsOn: ['plan'] },
+    { id: 'review', label: 'Review', kind: 'human' as const, instructions: 'Approve both changes', dependsOn: ['frontend', 'backend'] },
+  ],
+};
+describe('workflow graph', () => {
+  test('rejects cycles, unknown dependencies, duplicate ids and empty graphs', () => {
+    expect(workflowSchema.safeParse({ nodes: [] }).success).toBe(false);
+    expect(workflowSchema.safeParse({ nodes: [fork.nodes[0], fork.nodes[0]] }).success).toBe(false);
+    expect(workflowSchema.safeParse({ nodes: [{ ...fork.nodes[0], dependsOn: ['missing'] }] }).success).toBe(false);
+    expect(workflowSchema.safeParse({ nodes: [{ ...fork.nodes[0], dependsOn: ['frontend'] }, fork.nodes[1]] }).success).toBe(false);
+  });
+  test('forks only when ready, joins after both branches, exposes user decisions', () => {
+    let run = newWorkflow(fork);
+    expect(() => changeStep(run, { nodeId: 'frontend', state: 'running' })).toThrow(/dependencies/);
+    run = changeStep(run, { nodeId: 'plan', state: 'done' });
+    expect(readySteps(run).map((n) => n.id)).toEqual(['frontend', 'backend']);
+    run = changeStep(run, { nodeId: 'frontend', state: 'running' });
+    run = changeStep(run, { nodeId: 'backend', state: 'running' });
+    expect(workflowSummary(run).current).toEqual(['Frontend', 'Backend']);
+    run = changeStep(run, { nodeId: 'frontend', state: 'done' });
+    expect(() => changeStep(run, { nodeId: 'review', state: 'done' })).toThrow(/dependencies/);
+    run = changeStep(run, { nodeId: 'backend', state: 'done' });
+    expect(workflowSummary(run).waiting).toBe(true);
+    run = changeStep(run, { nodeId: 'review', state: 'done', message: 'Approved' });
+    expect(workflowSummary(run).complete).toBe(true);
+  });
+  test('requires a waiting reason, supports failure/retry, prevents reopening completed work', () => {
+    let run = newWorkflow();
+    expect(() => changeStep(run, { nodeId: 'plan', state: 'waiting' })).toThrow(/Describe/);
+    run = changeStep(run, { nodeId: 'plan', state: 'waiting', message: 'Which target?' });
+    expect(workflowSummary(run).waiting).toBe(true);
+    run = changeStep(run, { nodeId: 'plan', state: 'failed' });
+    run = changeStep(run, { nodeId: 'plan', state: 'running' });
+    run = changeStep(run, { nodeId: 'plan', state: 'done' });
+    expect(() => changeStep(run, { nodeId: 'plan', state: 'running' })).toThrow(/cannot be restarted/);
+  });
+  test('allows pending edits while preserving started work and progress', () => {
+    const run = changeStep(newWorkflow(), { nodeId: 'plan', state: 'running' });
+    const graph = structuredClone(DEFAULT_WORKFLOW);
+    graph.nodes[1]!.label = 'Build';
+    expect(replaceGraph(run, graph).states.plan.state).toBe('running');
+    graph.nodes[0]!.label = 'Changed';
+    expect(() => replaceGraph(run, graph)).toThrow(/not started/);
+  });
+  test('persists independent ticket snapshots and detects lost updates', () => {
+    const db = openDatabase(path.join(dir, 'tickets.db'));
+    try {
+      db.prepare('INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+        'test',
+        'TEST_workspace_graph',
+        dir,
+        'gantry.yaml',
+        'codex',
+        'builtin:default',
+        '',
+        '',
+      );
+      const store = new TicketStore(db);
+      const a = store.create('test', { title: 'TEST_workspace_graph_a' }, [], 'ticket', fork);
+      const b = store.create('test', { title: 'TEST_workspace_graph_b' }, [], 'ticket', fork);
+      const run = changeStep(ticketWorkflow(a)!, { nodeId: 'plan', state: 'done' });
+      saveTicketWorkflow(db, a, run);
+      expect(() => saveTicketWorkflow(db, a, run)).toThrow(/changed/);
+      expect(ticketWorkflow(store.get(a.id)!)!.states.plan.state).toBe('done');
+      expect(ticketWorkflow(store.get(b.id)!)!.states.plan.state).toBe('pending');
+      expect(fork.nodes[0]!.label).toBe('Plan');
+    } finally {
+      db.close();
+    }
+  });
+  test('workspace graph saves preserve shared instructions and YAML comments', async () => {
+    const workspace = path.join(dir, 'workspace');
+    fs.mkdirSync(workspace);
+    fs.writeFileSync(
+      path.join(workspace, 'gantry.yaml'),
+      '# Keep this comment\napiVersion: gantry.dev/v1\nproject:\n  id: test\n  name: TEST_workspace_graph\nrepositories:\n  - id: app\n    path: .\npromptTemplates:\n  - id: custom\n    label: Custom\n    body: Keep my instructions\n',
+    );
+    const project = await loadProject(workspace);
+    saveWorkspaceWorkflow(project, fork);
+    const reloaded = await loadProject(workspace);
+    expect(reloaded.config.workflow).toEqual(fork);
+    expect(reloaded.config.promptTemplates[0]!.body).toBe('Keep my instructions');
+    expect(fs.readFileSync(project.configPath, 'utf8')).toContain('# Keep this comment');
+  });
+});
+
+test('HTTP graph contract copies templates, rejects stale updates and preserves ticket overrides', async () => {
+  const { GantryApp } = await import('../packages/server/src/app.js');
+  const { createAppContext } = await import('../packages/server/src/config/app.js');
+  const { createHttpServer } = await import('../packages/server/src/http/server.js');
+  const { registerProjectRow } = await import('../packages/server/src/projects/registry.js');
+  const original = process.env.GANTRY_DATA_DIR;
+  process.env.GANTRY_DATA_DIR = path.join(dir, 'api-data');
+  const ctx = createAppContext();
+  if (original === undefined) delete process.env.GANTRY_DATA_DIR;
+  else process.env.GANTRY_DATA_DIR = original;
+  const app = new GantryApp(ctx);
+  const server = await createHttpServer(app);
+  try {
+    const project = await loadProject(path.join(dir, 'workspace'));
+    registerProjectRow(app.db, project);
+    const headers = { host: '127.0.0.1:4500' };
+    const create = await server.inject({ method: 'POST', url: '/api/projects/test/tickets', headers, payload: { title: 'TEST_workspace_graph_http' } });
+    expect(create.statusCode).toBe(201);
+    const id = create.json().id;
+    const get = () => server.inject({ method: 'GET', url: `/api/tickets/${id}/workflow`, headers });
+    expect((await get()).json().graph).toEqual(fork);
+    const saved = await server.inject({ method: 'POST', url: '/api/projects/test/workflow', headers, payload: DEFAULT_WORKFLOW });
+    expect(saved.statusCode).toBe(200);
+    expect((await get()).json().graph).toEqual(fork);
+    const body = { revision: 0, nodeId: 'plan', state: 'running' };
+    expect((await server.inject({ method: 'POST', url: `/api/tickets/${id}/workflow-progress`, headers, payload: body })).statusCode).toBe(200);
+    expect((await server.inject({ method: 'POST', url: `/api/tickets/${id}/workflow-progress`, headers, payload: body })).statusCode).toBe(409);
+    const invalid = await server.inject({ method: 'POST', url: `/api/tickets/${id}/workflow`, headers, payload: { revision: 1, graph: { nodes: [] } } });
+    expect(invalid.statusCode).toBe(400);
+    expect((await get()).json().revision).toBe(1);
+  } finally {
+    await server.close();
+    await app.shutdown();
+  }
+});
