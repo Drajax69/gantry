@@ -1,3 +1,4 @@
+export { ticketServiceScopes } from "../../../../packages/shared/src/ticket";
 import type { Workflow, WorkflowRun, StepState } from "../../../../packages/shared/src/workflow";
 export type { Workflow, WorkflowRun, StepState };
 // Typed client for the Gantry HTTP API.
@@ -44,6 +45,8 @@ export interface TicketView {
   description: string;
   status: string;
   scope: string;
+  scopes: string[];
+  scopeDescription?: string;
   branch: string;
   additions: string | null;
   position: number;
@@ -167,9 +170,9 @@ export const gantry = {
   addProject: (workspace: string): Promise<{ ok: boolean; projectId: string }> => request('/api/projects', 'POST', { workspace, initialize: true }),
   removeProject: (projectId: string): Promise<{ ok: boolean }> => request(`/api/projects/${projectId}`, 'DELETE'),
   refreshProject: (projectId: string): Promise<{ ok: boolean }> => request(`/api/projects/${projectId}/refresh`, 'POST', {}),
-  createTicket: (projectId: string, input: { title: string; description?: string; scope?: string; branch?: string; additions?: string | null }): Promise<TicketView> =>
+  createTicket: (projectId: string, input: { title: string; description?: string; scope?: string; scopes?: string[]; branch?: string; additions?: string | null }): Promise<TicketView> =>
     request(`/api/projects/${projectId}/tickets`, 'POST', input),
-  updateTicket: (ticketId: string, input: { title?: string; description?: string; status?: string; scope?: string; branch?: string; additions?: string | null }): Promise<TicketView> =>
+  updateTicket: (ticketId: string, input: { title?: string; description?: string; status?: string; scope?: string; scopes?: string[]; branch?: string; additions?: string | null }): Promise<TicketView> =>
     request(`/api/tickets/${ticketId}/update`, 'POST', input),
   deleteTicket: (ticketId: string): Promise<{ ok: boolean }> => request(`/api/tickets/${ticketId}/delete`, 'POST', {}),
   reorderTickets: (projectId: string, status: string, ticketIds: string[]): Promise<unknown> =>

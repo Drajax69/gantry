@@ -91,3 +91,34 @@ test('pull requests link to the matching PR Lens review', async ({ page }) => {
     .toHaveAttribute('href', 'https://github.com/example/frontend/pull/42');
   await page.unrouteAll({ behavior: 'wait' });
 });
+
+test('ticket scopes select services and persist multiple selections through edits', async ({ page }, testInfo) => {
+  await page.goto(BASE);
+  await page.getByRole('button', { name: '+ New ticket' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('combobox')).toHaveCount(0);
+  await expect(dialog.getByRole('checkbox', { name: 'frontend', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: 'backend', exact: true })).toBeChecked();
+  await dialog.getByLabel('Title').fill('TEST_service_scope_browser');
+  await page.screenshot({ path: testInfo.outputPath('service-scopes-wide.png') });
+  await page.setViewportSize({ width: 420, height: 800 });
+  await page.screenshot({ path: testInfo.outputPath('service-scopes-narrow.png') });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await dialog.getByRole('checkbox', { name: 'backend', exact: true }).uncheck();
+  await dialog.getByRole('button', { name: 'Create ticket' }).click();
+  const card = page.locator('.card', { hasText: 'TEST_service_scope_browser' });
+  await expect(card).toBeVisible();
+  await card.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'frontend', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: 'backend', exact: true })).not.toBeChecked();
+  await dialog.getByRole('checkbox', { name: 'backend', exact: true }).check();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.reload();
+  await card.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'frontend', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: 'backend', exact: true })).toBeChecked();
+  await dialog.getByRole('checkbox', { name: 'frontend', exact: true }).uncheck();
+  await dialog.getByRole('checkbox', { name: 'backend', exact: true }).uncheck();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(card).toContainText('Workspace-wide');
+});

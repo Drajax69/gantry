@@ -149,8 +149,8 @@ describe('buildPromptVars', () => {
     assert.equal(vars['repo.e2e'], '/tmp/gantry-fixture-workspace/examify-e2e');
     assert.equal(vars['ticket.title'], 'Add exam folders');
     assert.equal(vars['ticket.branch'], 'codex/add-exam-folders');
-    assert.equal(vars['ticket.scope'], 'both');
-    assert.equal(vars['ticket.scopeDescription'], 'frontend and backend');
+    assert.equal(vars['ticket.scope'], 'frontend, backend');
+    assert.equal(vars['ticket.scopeDescription'], 'frontend, backend');
     assert.equal(vars['safety.testRecordPrefix'], 'TEST_');
     assert.equal(vars['safety.manualTestFile'], 'manual-test-needed.md');
     assert.equal(vars['url.backend'], 'http://127.0.0.1:5201');
@@ -232,4 +232,22 @@ test('ticket graph instructions use the snapshot and include progress reporting'
   assert.match(result.prompt, /gantry workflow 00000000-0000-4000-8000-000000000001/);
   assert.match(result.prompt, /delegated in parallel/);
   assert.match(result.prompt, /http:\/\/127.0.0.1:4598\/api\/tickets\//);
+});
+
+
+test('service scope resolution supports legacy rows and explicit selections in prompts', async () => {
+  const { ticketServiceScopes, ticketScopeDescription } = await import('../packages/shared/src/ticket.js');
+  const services = [{ id: 'web', repository: 'frontend' }, { id: 'admin', repository: 'frontend' }, { id: 'api', repository: 'backend' }];
+  assert.deepEqual(ticketServiceScopes({ scope: 'both' }, services), ['web', 'admin', 'api']);
+  assert.deepEqual(ticketServiceScopes({ scope: 'frontend' }, services), ['web', 'admin']);
+  assert.deepEqual(ticketServiceScopes({ scope: 'api' }, services), ['api']);
+  assert.equal(ticketScopeDescription({ scope: 'testing' }, services), 'Legacy scope: testing');
+  assert.deepEqual(ticketServiceScopes({ scope: 'both', scopes: [] }, services), []);
+  assert.match(ticketScopeDescription({ scopes: [] }, services), /workspace-wide/);
+  assert.match(ticketScopeDescription({}, []), /workspace-wide/);
+  assert.equal(ticketScopeDescription({ scopes: ['removed'] }, services), 'removed');
+  const p = project();
+  const vars = buildPromptVars(p, ticket({ scopes: ['backend'] }), { artifactDir: '/artifacts', previewUrl: null, urls: {}, paths: {} });
+  assert.equal(vars['ticket.scope'], 'backend');
+  assert.equal(vars['ticket.scopeDescription'], 'backend');
 });

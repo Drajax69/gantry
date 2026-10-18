@@ -23,7 +23,10 @@ export interface TicketView {
   title: string;
   description: string;
   status: TicketStatus;
+  /** Legacy category retained for older clients. */
   scope: string;
+  scopes: string[];
+  scopeDescription?: string;
   branch: string;
   position: number;
   createdAt: string;
@@ -35,4 +38,26 @@ export interface TicketView {
   previewStatus: string | null;
   pullRequests: { role: string; number: number; url: string; title: string }[];
   artifacts: { file: string; label: string; kind: string; url: string; size: number }[];
+}
+
+/** Resolve old categories without changing persisted tickets on read. */
+export function ticketServiceScopes(
+  ticket: { scope?: string; scopes?: string[] | null },
+  services: { id: string; repository: string }[] = [],
+): string[] {
+  if (ticket.scopes != null) return ticket.scopes;
+  if (!ticket.scope || ticket.scope === 'both') return services.map((service) => service.id);
+  return services
+    .filter((service) => service.id === ticket.scope || service.repository === ticket.scope)
+    .map((service) => service.id);
+}
+
+export function ticketScopeDescription(
+  ticket: { scope?: string; scopes?: string[] | null },
+  services: { id: string; repository: string }[] = [],
+): string {
+  const selected = ticketServiceScopes(ticket, services);
+  if (selected.length) return selected.join(', ');
+  if (ticket.scopes == null && ticket.scope && ticket.scope !== 'both') return `Legacy scope: ${ticket.scope}`;
+  return 'No service scope selected (workspace-wide work)';
 }

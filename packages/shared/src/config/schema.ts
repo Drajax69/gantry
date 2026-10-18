@@ -139,15 +139,6 @@ export const ticketScopeSchema = z.object({
 });
 export type TicketScope = z.infer<typeof ticketScopeSchema>;
 
-export const defaultTicketScopes: z.infer<typeof ticketScopeSchema>[] = [
-  { id: 'both', label: 'Frontend + backend', description: 'frontend and backend' },
-  { id: 'frontend', label: 'Frontend', description: 'frontend' },
-  { id: 'backend', label: 'Backend', description: 'backend' },
-  { id: 'operations', label: 'Operations', description: 'operations and infrastructure' },
-  { id: 'data', label: 'Data', description: 'data migrations and configuration' },
-  { id: 'testing', label: 'Testing', description: 'testing and quality assurance' },
-];
-
 export const promptTemplateSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]*$/, 'Template id must be lowercase kebab-case'),
   label: z.string().min(1),
@@ -190,8 +181,8 @@ export const projectSchema = z.object({
   environments: z.array(environmentSchema).default([]),
   promptTemplates: z.array(promptTemplateSchema).default([]),
   workflow: workflowSchema.optional(),
-  /** Ticket scopes offered in the UI and rendered into prompts. */
-  scopes: z.array(ticketScopeSchema).default(defaultTicketScopes),
+  /** Deprecated legacy categories, accepted for older workspace files only. */
+  scopes: z.array(ticketScopeSchema).default([]),
   agents: z.array(agentConfigSchema).default([]),
   safety: z
     .object({

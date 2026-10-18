@@ -38,7 +38,7 @@ describe('parseProjectConfig', () => {
     assert.deepEqual(config.services[1]!.start, { kind: 'argv', value: ['npm', 'run', 'dev'] });
     assert.equal(config.safety.testRecordPrefix, 'TEST_');
     assert.equal(config.safety.manualTestFile, 'manual-test-needed.md');
-    assert.ok(config.scopes.length >= 5);
+    assert.deepEqual(config.scopes, []);
   });
 
   test('rejects a wrong apiVersion with a helpful message', () => {

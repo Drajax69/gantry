@@ -188,3 +188,61 @@ describe('validateTicketInput', () => {
     assert.equal(validated.branch, 'codex/old-title', 'existing branch is preserved');
   });
 });
+
+
+describe('service scopes', () => {
+  test('persists multiple selections, deduplicates, preserves on partial edits, and clears explicitly', async () => {
+    const { store, db } = await makeStore();
+    const services = ['web', 'api', 'worker'];
+    const ticket = store.create('proj', { title: 'Services', scopes: ['web', 'api', 'web'] }, services, 'ticket');
+    assert.deepEqual(ticket.scopes, ['web', 'api']);
+    assert.equal((db.prepare('SELECT scopes_json FROM tickets WHERE id=?').get(ticket.id) as { scopes_json: string }).scopes_json, '["web","api"]');
+    assert.deepEqual(new TicketStore(db).get(ticket.id)?.scopes, ['web', 'api']);
+    assert.deepEqual(store.all('proj')[0]?.scopes, ['web', 'api']);
+    assert.deepEqual(store.update(ticket.id, { title: 'Renamed' }, ['web'], 'ticket').scopes, ['web', 'api']);
+    assert.deepEqual(store.update(ticket.id, { title: 'Renamed', scopes: ['web', 'api'] }, ['web'], 'ticket').scopes, ['web', 'api']);
+    assert.deepEqual(store.update(ticket.id, { title: 'Renamed', scopes: [] }, services, 'ticket').scopes, []);
+    assert.deepEqual(store.create('proj', { title: 'Default' }, services, 'ticket').scopes, services);
+    assert.deepEqual(store.create('proj', { title: 'No services' }, [], 'ticket').scopes, []);
+  });
+
+  test('rejects malformed and unknown selections including workspaces without services', async () => {
+    const { store } = await makeStore();
+    for (const scopes of ['web', null, [1], [''], {}]) {
+      assert.throws(() => store.create('proj', { title: 'Invalid', scopes } as never, ['web'], 'ticket'), /list of service IDs/);
+    }
+    assert.throws(() => store.create('proj', { title: 'Unknown', scopes: ['other'] }, ['web'], 'ticket'), /Unknown service/);
+    assert.throws(() => store.create('proj', { title: 'Unknown', scopes: ['web'] }, [], 'ticket'), /Unknown service/);
+    const ticket = store.create('proj', { title: 'Valid', scopes: ['web'] }, ['web'], 'ticket');
+    assert.throws(() => store.update(ticket.id, { title: 'Valid', scopes: ['other'] }, ['web'], 'ticket'), /Unknown service/);
+  });
+
+  test('legacy rows remain readable and unrelated edits retain their category', async () => {
+    const { store, db } = await makeStore();
+    const ticket = store.create('proj', { title: 'Old', scope: 'testing' }, SCOPES, 'ticket');
+    assert.equal(ticket.scopes, null);
+    const updated = store.update(ticket.id, { title: 'Still old' }, ['web'], 'ticket');
+    assert.equal(updated.scope, 'testing');
+    assert.equal(updated.scopes, null);
+    assert.equal((db.prepare('SELECT scopes_json FROM tickets WHERE id=?').get(ticket.id) as { scopes_json: null }).scopes_json, null);
+  });
+});
+
+
+test('service scope migration preserves tickets from the previous schema', async () => {
+  const { store, db, dir } = await makeStore();
+  const legacy = store.create('proj', { title: 'Before service scopes', scope: 'frontend' }, SCOPES, 'ticket');
+  db.exec('ALTER TABLE tickets DROP COLUMN scopes_json');
+  db.prepare('DELETE FROM schema_migrations WHERE version = 5').run();
+  db.close();
+  const migrated = openDatabase(path.join(dir, 'tickets.db'));
+  try {
+    const ticket = new TicketStore(migrated).get(legacy.id)!;
+    assert.equal(ticket.title, legacy.title);
+    assert.equal(ticket.scope, 'frontend');
+    assert.equal(ticket.scopes, null);
+    assert.deepEqual(new TicketStore(migrated).update(ticket.id, { title: ticket.title, scopes: ['web'] }, ['web'], 'ticket').scopes, ['web']);
+  } finally {
+    migrated.close();
+  }
+});

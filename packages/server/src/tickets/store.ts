@@ -16,6 +16,8 @@ export interface TicketRow {
   description: string;
   status: 'backlog' | 'in_progress' | 'done';
   scope: string;
+  scopes?: string[] | null;
+  scopes_json?: string | null;
   branch: string;
   additions: string | null;
   position: number;
@@ -35,6 +37,7 @@ export interface TicketInput {
   description?: string;
   status?: string;
   scope?: string;
+  scopes?: string[];
   branch?: string;
   additions?: string | null;
 }
@@ -43,7 +46,7 @@ export function validateTicketInput(
   input: TicketInput,
   previous?: TicketRow,
   branchPrefix = 'ticket',
-): { title: string; description: string; status: TicketRow['status']; scope: string; branch: string; additions: string | null } {
+): { title: string; description: string; status: TicketRow['status']; scope: string; scopes?: string[] | null; branch: string; additions: string | null } {
   const title = String(input.title ?? previous?.title ?? '').trim();
   if (!title) throw new TicketError('Title is required.');
   if (title.length > TICKET_TITLE_MAX) throw new TicketError(`Title must be ${TICKET_TITLE_MAX} characters or fewer.`);
@@ -52,6 +55,11 @@ export function validateTicketInput(
   const status = (input.status ?? previous?.status ?? 'backlog') as TicketRow['status'];
   if (!['backlog', 'in_progress', 'done'].includes(status)) throw new TicketError('Unknown ticket status.');
   const scope = input.scope ?? previous?.scope ?? 'both';
+  if (typeof scope !== 'string') throw new TicketError('Legacy scope must be a string.');
+  if (input.scopes !== undefined && (!Array.isArray(input.scopes) || input.scopes.some((id) => typeof id !== 'string' || !id))) {
+    throw new TicketError('Scopes must be a list of service IDs.');
+  }
+  const scopes = input.scopes === undefined ? previous?.scopes : [...new Set(input.scopes)];
   let branch = input.branch ?? previous?.branch;
   if (branch === undefined || branch === '') branch = branchFor(title, branchPrefix);
   branch = String(branch).trim();
@@ -59,23 +67,32 @@ export function validateTicketInput(
   if (previous && previous.active_run_id && branch !== previous.branch) {
     throw new TicketError('The branch cannot change after agent work has started.');
   }
-  return { title, description, status, scope, branch, additions: input.additions ?? previous?.additions ?? null };
+  return { title, description, status, scope, scopes, branch, additions: input.additions ?? previous?.additions ?? null };
 }
 
 export class TicketStore {
   constructor(private readonly db: Database) {}
 
   all(projectId: string): TicketRow[] {
-    return this.db.prepare('SELECT * FROM tickets WHERE project_id=? ORDER BY status, position, created_at').all(projectId) as unknown as TicketRow[];
+    const rows = this.db.prepare('SELECT * FROM tickets WHERE project_id=? ORDER BY status, position, created_at').all(projectId) as unknown as TicketRow[];
+    return rows.map(readTicketScopes);
   }
 
   get(id: string): TicketRow | null {
-    return (this.db.prepare('SELECT * FROM tickets WHERE id=?').get(id) as TicketRow | undefined) ?? null;
+    const row = this.db.prepare('SELECT * FROM tickets WHERE id=?').get(id) as TicketRow | undefined;
+    return row ? readTicketScopes(row) : null;
   }
 
   create(projectId: string, input: TicketInput, scopes: string[], branchPrefix: string, workflow?: Workflow): TicketRow {
     const validated = validateTicketInput(input, undefined, branchPrefix);
-    if (scopes.length && !scopes.includes(validated.scope)) throw new TicketError(`Unknown ticket scope "${validated.scope}".`);
+    if (input.scopes === undefined && input.scope === undefined) validated.scopes = [...scopes];
+    if (validated.scopes != null) {
+      for (const id of validated.scopes) {
+        if (!scopes.includes(id)) throw new TicketError(`Unknown service scope "${id}".`);
+      }
+    } else if (input.scope !== undefined && scopes.length && !scopes.includes(validated.scope) && validated.scope !== 'both') {
+      throw new TicketError(`Unknown ticket scope "${validated.scope}".`);
+    }
     const now = new Date().toISOString();
     const ticket: TicketRow = {
       id: newId(),
@@ -91,10 +108,10 @@ export class TicketStore {
     // take position 0 and shift the rest down.
     this.db
       .prepare(
-        `INSERT INTO tickets (id, project_id, title, description, status, scope, branch, additions, position, active_run_id, created_at, updated_at, workflow_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tickets (id, project_id, title, description, status, scope, branch, additions, position, active_run_id, created_at, updated_at, workflow_json, scopes_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(ticket.id, ticket.project_id, ticket.title, ticket.description, ticket.status, ticket.scope, ticket.branch, ticket.additions, ticket.position, null, ticket.created_at, ticket.updated_at, ticket.workflow_json!);
+      .run(ticket.id, ticket.project_id, ticket.title, ticket.description, ticket.status, ticket.scope, ticket.branch, ticket.additions, ticket.position, null, ticket.created_at, ticket.updated_at, ticket.workflow_json!, validated.scopes == null ? null : JSON.stringify(validated.scopes));
     this.db.prepare('UPDATE tickets SET position = position + 1 WHERE project_id=? AND status=? AND id != ?').run(projectId, ticket.status, ticket.id);
     return this.get(ticket.id)!;
   }
@@ -103,11 +120,17 @@ export class TicketStore {
     const previous = this.get(id);
     if (!previous) throw new TicketError('Ticket not found.');
     const validated = validateTicketInput(input, previous, branchPrefix);
-    if (scopes.length && !scopes.includes(validated.scope)) throw new TicketError(`Unknown ticket scope "${validated.scope}".`);
+    if (input.scopes !== undefined) {
+      for (const id of validated.scopes ?? []) {
+        if (!scopes.includes(id) && !previous.scopes?.includes(id)) throw new TicketError(`Unknown service scope "${id}".`);
+      }
+    } else if (input.scope !== undefined && input.scope !== previous.scope && scopes.length && !scopes.includes(validated.scope) && validated.scope !== 'both') {
+      throw new TicketError(`Unknown ticket scope "${validated.scope}".`);
+    }
     const statusChanged = validated.status !== previous.status;
     this.db
-      .prepare('UPDATE tickets SET title=?, description=?, status=?, scope=?, branch=?, additions=?, updated_at=? WHERE id=?')
-      .run(validated.title, validated.description, validated.status, validated.scope, validated.branch, validated.additions, new Date().toISOString(), id);
+      .prepare('UPDATE tickets SET title=?, description=?, status=?, scope=?, branch=?, additions=?, updated_at=?, scopes_json=? WHERE id=?')
+      .run(validated.title, validated.description, validated.status, validated.scope, validated.branch, validated.additions, new Date().toISOString(), validated.scopes == null ? null : JSON.stringify(validated.scopes), id);
     if (statusChanged) {
       const maxPosition = (this.db.prepare('SELECT COALESCE(MAX(position), -1) AS p FROM tickets WHERE project_id=? AND status=?').get(previous.project_id, validated.status) as { p: number }).p;
       this.db.prepare('UPDATE tickets SET position=? WHERE id=?').run(Number(maxPosition) + 1, id);
@@ -173,8 +196,12 @@ export class TicketStore {
     for (const ticket of tickets) {
       if (!branches.has(ticket.branch)) continue;
       this.db.prepare("UPDATE tickets SET status='done', updated_at=? WHERE id=?").run(now, ticket.id);
-      completed.push({ ...ticket, status: 'done' });
+      completed.push({ ...readTicketScopes(ticket), status: 'done' });
     }
     return completed;
   }
+}
+
+function readTicketScopes(row: TicketRow): TicketRow {
+  return { ...row, scopes: row.scopes_json == null ? null : JSON.parse(row.scopes_json) as string[] };
 }
