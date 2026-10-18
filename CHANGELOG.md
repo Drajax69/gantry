@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Add a searchable ticket status graph with shared ticket actions, linked conversations, and visible two-second refreshes.
+
 - Give tickets persistent individual colours, with coordinated board accents and matching ticket headers in light and dark mode.
 
 - Review unpublished edits in Local changes and commit and push them to the PR directly from Gantry. Preserve local commits after failed pushes and remote refreshes.

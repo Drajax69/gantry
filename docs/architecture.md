@@ -178,3 +178,19 @@ $XDG_DATA_HOME/gantry | ~/.local/share    Linux
 ```
 
 Override with `GANTRY_DATA_DIR`. Inside: `gantry.db` (+ WAL/SHM), `logs/`, `runs/`, `artifacts/`, `tmp/`, `ready/`, `installs/`. Gantry never writes inside a workspace except for the worktree root it is configured to manage.
+
+### Desktop ticket graph
+
+The Tickets area offers Board and Graph views over the same status snapshot and
+ticket cards. The graph connects tickets to their current stage (not to inferred
+dependencies). Search and the in-progress filter only affect graph visibility.
+Ticket creation, details, editing, stage changes, conversations, reviews and
+previews use the existing handlers and dialogs.
+
+While the graph is visible, the desktop refreshes status every two seconds and
+on focus/visibility restoration. The existing request guard serializes refreshes;
+hidden tabs stop polling. Failed requests retain the last snapshot and display
+the connection warning. The desktop status bridge adds the saved conversation
+association without creating or opening a chat. External provider activity is
+not inferred: workflow updates and managed run state remain the sources of
+progress. A linked conversation alone does not mean an agent is running.
