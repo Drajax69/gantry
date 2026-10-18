@@ -249,7 +249,16 @@ the browser tab can be closed. Interrupted working stages pause after restart to
 avoid replaying unknown side effects. A persisted routing checkpoint can retry
 the coordinator without repeating completed implementation work. Pause aborts
 the active provider process; it does not undo completed edits or external actions.
-Stop manual work in a stage chat before resuming automation. The desktop bridge
+On macOS, **Open stage chat** opens a Codex deep link without pausing or launching
+another agent. For chats opened through Gantry, the executor reads durable Codex
+turn events before handover, waits for an active follow-up, and uses the latest
+completed turn's structured result after two stable observations. Unknown,
+interrupted, or unstructured results stop execution for attention. Changes to an
+earlier opened chat are checked at stage boundaries and require retrying that
+stage. This is boundary checking, not an atomic lock on Codex's composer: a message
+sent after a handover cannot retroactively prevent work already dispatched.
+Claude and non-native terminal resumes still require pausing; API providers use
+Gantry's stage history. Stop terminal manual work before resuming automation. The desktop bridge
 exposes the execution snapshot; legacy runtime CLI progress is separate and must
 not drive automated tickets.
 

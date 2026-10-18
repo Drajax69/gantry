@@ -55,8 +55,8 @@ function contextFor(work: TicketWorkspace) {
 }
 
 /** Create a durable Codex thread without sending a turn or invoking a model. */
-async function createCodexThread(record: Omit<TicketConversation, "sessionId">, existingId?: string): Promise<string> {
-  const child = spawn(CLI.codex, ["app-server"], { cwd: record.cwd, stdio: ["pipe", "pipe", "pipe"] });
+async function withCodexServer<T>(cwd: string, action: (call: (method: string, params: unknown) => Promise<Record<string, unknown>>) => Promise<T>): Promise<T> {
+  const child = spawn(CLI.codex, ["app-server"], { cwd, stdio: ["pipe", "pipe", "pipe"] });
   let nextId = 0;
   let buffer = "";
   const waiting = new Map<number, { resolve: (v: Record<string, unknown>) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
@@ -90,6 +90,24 @@ async function createCodexThread(record: Omit<TicketConversation, "sessionId">, 
   try {
     await call("initialize", { clientInfo: { name: "gantry", version: "0.1.0" }, capabilities: { experimentalApi: true } });
     child.stdin.write(JSON.stringify({ method: "initialized" }) + "\n");
+    return await action(call);
+  } finally { child.stdin.end(); child.kill(); fail(new Error("Codex connection closed.")); }
+}
+
+export async function readWorkflowConversation(cwd: string, sessionId: string) {
+  return withCodexServer(cwd, async call => {
+    const result = await call("thread/read", { threadId: sessionId, includeTurns: true });
+    const thread = result.thread as { path?: string };
+    if (!thread?.path) throw new Error('Codex did not expose the stage history file.');
+    // A separate app-server reports another process's live turn as interrupted.
+    // Its durable task events are the cross-process source of completion.
+    const { rolloutThread } = await import('./workflow-chat-state');
+    return rolloutThread(await fs.promises.readFile(thread.path, 'utf8'));
+  });
+}
+
+async function createCodexThread(record: Omit<TicketConversation, "sessionId">, existingId?: string): Promise<string> {
+  return withCodexServer(record.cwd, async call => {
     if (existingId) {
       try {
         const existing = await call("thread/read", { threadId: existingId, includeTurns: !record.promptPrefilled });
@@ -124,7 +142,7 @@ async function createCodexThread(record: Omit<TicketConversation, "sessionId">, 
     save({ ...record, sessionId: id });
     await call("thread/name/set", { threadId: id, name: `Gantry · ${record.branch}` }).catch(() => {});
     return id;
-  } finally { child.stdin.end(); child.kill(); fail(new Error("Codex connection closed.")); }
+  });
 }
 
 const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
@@ -238,7 +256,7 @@ export async function openWorkflowConversation(work: TicketWorkspace, attempt: {
   if (!attempt.sessionId || !/^[\w-]+$/.test(attempt.sessionId) || !['codex','claude'].includes(attempt.providerKind)) throw httpError(409, 'Read this API stage in its history panel.');
   const cwd=work.checkouts[0]?.path;
   if (!cwd) throw httpError(409,'This ticket has no worktrees.');
-  const record:TicketConversation={ticketId:work.ticket.id,agentId:attempt.providerId,provider:attempt.providerKind as 'codex'|'claude',providerName:attempt.providerKind,model:attempt.model,sessionId:attempt.sessionId,cwd,branch:work.ticket.branch,checkouts:work.checkouts,context:'Continue the existing Gantry stage. Automation is paused for manual work.',promptPrefilled:true,createdAt:Date.now()};
+  const record:TicketConversation={ticketId:work.ticket.id,agentId:attempt.providerId,provider:attempt.providerKind as 'codex'|'claude',providerName:attempt.providerKind,model:attempt.model,sessionId:attempt.sessionId,cwd,branch:work.ticket.branch,checkouts:work.checkouts,context:'Continue the existing Gantry stage. Preserve its instructions and finish with its structured GANTRY_RESULT handover.',promptPrefilled:true,createdAt:Date.now()};
   if(record.provider==='claude' && !claudeSessionExists(record.sessionId)) throw httpError(409,'This stage conversation is no longer available. Its output remains in stage history.');
   await launch(record,false);
   return {conversation:publicConversation(record)};
