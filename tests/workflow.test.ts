@@ -2,7 +2,7 @@ import { describe, test, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_WORKFLOW, newWorkflow, readySteps, workflowSchema, workflowSummary } from '../packages/shared/src/workflow.js';
+import { DEFAULT_WORKFLOW, exportWorkflow, importWorkflow, newWorkflow, readySteps, workflowSchema, workflowSummary } from '../packages/shared/src/workflow.js';
 import { changeStep, replaceGraph, saveTicketWorkflow, ticketWorkflow } from '../packages/server/src/tickets/workflow.js';
 import { TicketStore } from '../packages/server/src/tickets/store.js';
 import { openDatabase } from '../packages/server/src/db/db.js';
@@ -135,4 +135,32 @@ test('HTTP graph contract copies templates, rejects stale updates and preserves 
     await server.close();
     await app.shutdown();
   }
+});
+
+describe('portable workspace graphs', () => {
+  test('round trips settings while requiring automatic runs to be enabled again', () => {
+    const graph = workflowSchema.parse({
+      autoStart: true,
+      entryNodeId: 'plan',
+      nodes: [
+        { ...fork.nodes[0], model: 'example-model', providerId: 'example-provider', position: { x: 100, y: 200 } },
+        { ...fork.nodes[1], reasoningEffort: 'high', workspaceExclusive: true },
+      ],
+      edges: [
+        { id: 'forward', source: 'plan', target: 'frontend', label: 'Ready to build' },
+        { id: 'retry', source: 'frontend', target: 'plan', label: 'Revise the plan' },
+      ],
+    });
+
+    expect(importWorkflow(exportWorkflow(graph))).toEqual({ ...graph, autoStart: false });
+    expect(graph.autoStart).toBe(true);
+    expect(importWorkflow(exportWorkflow(fork))).toEqual({ ...fork, autoStart: false });
+  });
+
+  test('rejects malformed, unsupported and invalid graphs', () => {
+    expect(() => importWorkflow('not json')).toThrow();
+    expect(() => importWorkflow(JSON.stringify({ format: 'gantry-workspace-graph', version: 2, graph: fork }))).toThrow();
+    expect(() => importWorkflow(JSON.stringify({ format: 'gantry-workspace-graph', version: 1, graph: { nodes: [fork.nodes[1]] } }))).toThrow();
+    expect(() => importWorkflow(JSON.stringify({ nodes: [] }))).toThrow();
+  });
 });

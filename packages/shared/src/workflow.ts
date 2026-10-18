@@ -116,3 +116,26 @@ export function workflowSummary(run: WorkflowRun) {
       : readySteps(run);
   return { waiting, current: current.map((n) => n.label), complete: run.graph.nodes.every((n) => run.states[n.id]?.state === 'done') };
 }
+
+/** Portable graph files contain configuration only, never ticket execution state. */
+const workflowFileSchema = z.object({
+  format: z.literal('gantry-workspace-graph'),
+  version: z.literal(1),
+  graph: workflowSchema,
+});
+
+export function exportWorkflow(graph: Workflow): string {
+  const file = workflowFileSchema.parse({
+    format: 'gantry-workspace-graph',
+    version: 1,
+    graph,
+  });
+
+  return JSON.stringify(file, null, 2) + '\n';
+}
+
+export function importWorkflow(text: string): Workflow {
+  const file = workflowFileSchema.parse(JSON.parse(text));
+
+  return { ...file.graph, autoStart: false };
+}
