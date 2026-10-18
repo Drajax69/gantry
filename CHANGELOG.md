@@ -20,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Default Gantry to light mode on first open, preserving saved desktop theme choices.
+
 - Wire preview services using dynamic dependency origins and ports; legacy frontend imports now connect to their own preview backend.
 
 - Managed runtimes retain a verifiable process claim, preventing duplicate preview processes on discovery passes.

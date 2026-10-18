@@ -184,7 +184,7 @@ function createWindow() {
     // centred in it (trafficLightPosition only applies to "hidden", not "hiddenInset").
     titleBarStyle: "hidden",
     trafficLightPosition: { x: 16, y: 17 },
-    backgroundColor: "#0a0a0a",
+    backgroundColor: "#ffffff",
     show: false,
     webPreferences: { contextIsolation: true, sandbox: true },
   });

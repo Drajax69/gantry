@@ -327,14 +327,14 @@ test("a repo you can't access explains why", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
 });
 
-test.describe("dark mode", () => {
-  test("follows the system setting", async ({ browser }) => {
+test.describe("theme", () => {
+  test("defaults to light even when the system is dark", async ({ browser }) => {
     const ctx = await browser.newContext({ colorScheme: "dark" });
     const page = await ctx.newPage();
     await page.goto(`${PR}?file=src/math.ts`);
-    await expect(page.locator("html")).toHaveClass(/dark/);
+    await expect(page.locator("html")).toHaveClass(/light/);
     await expect(page.locator('[data-line="new-2"]')).toBeVisible();
-    await page.screenshot({ path: path.join(TMP, "dark.png") });
+    await page.screenshot({ path: path.join(TMP, "default-light.png") });
     await ctx.close();
   });
 
