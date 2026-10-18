@@ -96,3 +96,37 @@ test('coordinator follows named edges and preserves its separate chat through a 
   await request.post('/api/gantry/api/tickets/ticket-1/update', { data: { status: 'done' } });
   fs.rmSync(path.resolve('e2e/.tmp/home/workflow-runs/ticket-1.json'), { force: true });
 });
+
+test('exports and imports a workspace draft without saving until requested', async ({ page, request }) => {
+  await request.post('/api/gantry/api/projects/fixture/workflow', { data: { nodes: [], edges: [], autoStart: false } });
+  await page.goto('/?workspace=fixture&view=workflow');
+  await add(page, 'Portable node');
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export graph', exact: true }).click();
+  const download = await downloadPromise;
+  const exported = fs.readFileSync((await download.path())!, 'utf8');
+  expect(JSON.parse(exported).graph.nodes[0].label).toBe('Portable node');
+
+  await page.getByLabel('Import graph file').setInputFiles({
+    name: 'invalid.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from('{}'),
+  });
+  await expect(page.getByRole('alert').filter({ hasText: 'Unable to import' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit node Portable node', exact: true })).toBeVisible();
+
+  await add(page, 'Discarded node');
+  const file = { name: 'graph.json', mimeType: 'application/json', buffer: Buffer.from(exported) };
+  await page.getByLabel('Import graph file').setInputFiles(file);
+  await page.getByRole('button', { name: 'Cancel import' }).click();
+  await expect(page.getByRole('button', { name: 'Edit node Discarded node', exact: true })).toBeVisible();
+  await page.getByLabel('Import graph file').setInputFiles(file);
+  await page.getByRole('button', { name: 'Replace draft' }).click();
+  await expect(page.getByRole('button', { name: 'Edit node Discarded node', exact: true })).toHaveCount(0);
+  expect((await (await request.get('/api/gantry/api/projects/fixture/workflow')).json()).nodes).toEqual([]);
+  await page.getByRole('button', { name: 'Save graph', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Saved', exact: true })).toBeDisabled();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Edit node Portable node', exact: true })).toBeVisible();
+});

@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAgents } from '@/lib/client/agents';
 import { gantry, type Workflow, type ProjectView } from '@/lib/client/gantry';
 import { canvasWorkflow, nodePositions } from '@/lib/client/workflow-graph';
+import { exportWorkflow, importWorkflow } from '../../../../packages/shared/src/workflow';
 import { WorkspacePromptDialog } from './workspace-prompt-dialog';
 
 type Node = Workflow['nodes'][number];
@@ -220,9 +221,11 @@ export function WorkflowCanvas({
   onCancel,
   header,
   draftKey,
+  portable = false,
 }: {
   initial: Workflow;
   draftKey?: string;
+  portable?: boolean;
   onSave: (graph: Workflow) => Promise<void>;
   onCancel?: () => void;
   header?: ReactNode;
@@ -234,6 +237,8 @@ export function WorkflowCanvas({
     } catch {}
     return canvasWorkflow(initial);
   });
+  const [imported, setImported] = useState<Workflow | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [saved, setSaved] = useState(() => JSON.stringify(initial));
   const [selected, setSelected] = useState<string | null>(null);
   const [edgeId, setEdgeId] = useState<string | null>(null);
@@ -331,6 +336,30 @@ export function WorkflowCanvas({
     setZoom(Math.max(0.3, Math.min(1.1, (v.clientWidth - 40) / w, (v.clientHeight - 40) / h)));
     v.scrollTo(0, 0);
   }
+  async function readGraph(file: File) {
+    setError('');
+    try {
+      if (file.size > 8 * 1024 * 1024) throw new Error('Graph files must be smaller than 8 MB.');
+      setImported(canvasWorkflow(importWorkflow(await file.text())));
+    } catch {
+      setError('Unable to import this graph. Choose a valid Gantry graph JSON file (version 1, under 8 MB).');
+    }
+  }
+
+  function downloadGraph() {
+    setError('');
+    try {
+      const url = URL.createObjectURL(new Blob([exportWorkflow(graph)], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'workspace-graph.json';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      setError('This graph is invalid. Check its start node and connections before exporting.');
+    }
+  }
+
   async function save() {
     setBusy(true);
     setError('');
@@ -348,6 +377,28 @@ export function WorkflowCanvas({
       <div className="flex flex-wrap items-center gap-3 border-b px-5 py-4">
         {header}
         <div className="ml-auto flex flex-wrap items-center gap-3">
+          {portable && (
+            <>
+              <input
+                ref={fileInput}
+                type="file"
+                accept=".json,application/json"
+                aria-label="Import graph file"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (file) void readGraph(file);
+                }}
+              />
+              <Button size="sm" variant="outline" disabled={busy} onClick={downloadGraph}>
+                Export graph
+              </Button>
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => fileInput.current?.click()}>
+                Import graph
+              </Button>
+            </>
+          )}
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
@@ -394,6 +445,33 @@ export function WorkflowCanvas({
           </Button>
         </div>
       </div>
+      {imported && (
+        <EditorDialog title="Import workspace graph" onClose={() => setImported(null)}>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Replace the current draft with {imported.nodes.length} nodes and {imported.edges?.length ?? 0} connections? Unsaved edits will be replaced.
+            Automatic runs will be off. Review provider and model settings, then save the graph to apply it to future tickets. Shared instructions are not
+            included.
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setImported(null)}>
+              Cancel import
+            </Button>
+            <Button
+              onClick={() => {
+                setGraph(imported);
+                setImported(null);
+                setSelected(null);
+                setEdgeId(null);
+                setConnecting(null);
+                setCursor(null);
+                setError('');
+              }}
+            >
+              Replace draft
+            </Button>
+          </div>
+        </EditorDialog>
+      )}
       {error && (
         <p role="alert" className="border-b px-5 py-3 text-sm text-destructive">
           {error}
@@ -693,6 +771,7 @@ export function WorkspaceGraphPage({ project }: { project: ProjectView }) {
   return (
     <>
       <WorkflowCanvas
+        portable
         draftKey={`gantry-graph-draft:${project.id}`}
         initial={graph}
         onSave={(g) => gantry.saveWorkspaceWorkflow(project.id, g).then(() => {})}

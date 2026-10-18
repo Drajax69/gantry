@@ -358,3 +358,17 @@ Use the variable name your application reads; Gantry does not assume a frontend 
 Managed `runtime: node` services run with Node watch mode by default. Changes to the entry or imported modules restart the service process on its existing port; logs are retained. This includes modules loaded through the checkout's TypeScript loader. Set `watch: false` on a Node service to opt out. Arbitrary files read as data and newly created, not-yet-imported modules are not guaranteed to trigger a restart.
 
 For `runtime: command`, use the framework's development command or add `--watch --watch-preserve-output` to a Node command. Gantry does not wrap arbitrary commands in a second watcher. Vite already reloads its frontend independently. Backend restarts briefly interrupt requests and reset in-memory server state; they do not reload the browser page.
+
+## Copy a workspace graph
+
+In the desktop app, open **Workspace graph** and select **Export graph** to download
+the current draft as a versioned JSON file. Open the destination workspace, select
+**Import graph**, and choose the file. Confirm **Replace draft**, review the graph,
+then select **Save graph**. Canceling or importing an invalid file preserves the draft.
+
+Files include nodes, instructions, connections, layout, and provider/model settings.
+Check provider availability in the destination workspace. Automatic runs are disabled
+on import until you enable them. Shared workspace instructions and ticket execution
+history are not copied, and existing tickets keep their own graph snapshots.
+Import and export run locally in the browser; only saving uses the existing workspace
+configuration API. Files must be version 1 Gantry graph exports under 8 MB.

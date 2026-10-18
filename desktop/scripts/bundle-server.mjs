@@ -4,6 +4,14 @@ import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
 const out = path.join(root, ".next", "standalone");
+// A monorepo tracing root places the application under desktop/. Keep the
+// existing Electron entry point at standalone/server.js.
+const appOutput = path.join(out, "desktop");
+if (fs.existsSync(path.join(appOutput, "server.js"))) {
+  fs.cpSync(appOutput, out, { recursive: true });
+  fs.rmSync(appOutput, { recursive: true });
+}
+
 if (!fs.existsSync(path.join(out, "server.js"))) {
   console.error("No standalone build found. Run `next build` with output: \"standalone\" first.");
   process.exit(1);
