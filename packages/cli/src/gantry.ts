@@ -148,7 +148,7 @@ async function cmdOpen(branch: string | undefined, port = 4500): Promise<void> {
     if (!preview) throw new Error(`No preview named ${branch}`);
     url = preview.services.find((service) => service.id === 'frontend')?.openLink ?? url;
   }
-  const child = spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [url], { stdio: 'ignore', detached: true });
+  const child = spawn(process.platform === 'win32' ? 'rundll32.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open', process.platform === 'win32' ? ['url.dll,FileProtocolHandler', url] : [url], { stdio: 'ignore', detached: true });
   child.unref();
   console.log(url);
 }

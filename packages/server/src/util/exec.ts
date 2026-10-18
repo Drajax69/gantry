@@ -1,4 +1,12 @@
-import { execFile, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { execFile, spawn as nativeSpawn } from 'node:child_process';
+
+const crossSpawn = createRequire(import.meta.url)('cross-spawn') as {
+  (...args: Parameters<typeof nativeSpawn>): ReturnType<typeof nativeSpawn>;
+  _parse(bin: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv }): { command: string; args: string[]; options: { windowsVerbatimArguments?: boolean } };
+};
 
 /**
  * Process execution helpers. Argument-array execution everywhere except where
@@ -40,12 +48,20 @@ const childEnv = (extra?: Record<string, string | undefined>): NodeJS.ProcessEnv
   ...extra,
 });
 
+export function shellCommand(command: string, platform: NodeJS.Platform = process.platform): [string, string[]] {
+  return platform === 'win32'
+    ? [process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command]]
+    : ['sh', ['-c', command]];
+}
+
 export async function run(bin: string, args: string[], options: RunOptions = {}): Promise<string> {
   return await new Promise<string>((resolve, reject) => {
+    const parsed = crossSpawn._parse(bin, args, { cwd: options.cwd, env: childEnv(options.env) });
     const child = execFile(
-      bin,
-      args,
+      parsed.command,
+      parsed.args,
       {
+        ...parsed.options,
         cwd: options.cwd,
         encoding: 'utf8',
         timeout: options.timeoutMs ?? 30_000,
@@ -72,6 +88,8 @@ export interface SpawnHandle {
   /** Process group id — equals pid because children are spawned detached. */
   pgid: number;
   exited: Promise<number>;
+  /** Unique Windows wrapper marker used to verify ownership after restart. */
+  claim?: string;
 }
 
 /**
@@ -84,7 +102,10 @@ export function spawnDetached(
   args: string[],
   options: { cwd?: string; env?: NodeJS.ProcessEnv; stdio?: 'ignore' | ['ignore', number, number]; onStdout?: (chunk: Buffer) => void; onStderr?: (chunk: Buffer) => void } = {},
 ): SpawnHandle {
-  const child = spawn(bin, args, {
+  const claim = process.platform === 'win32' ? `gantry-process-${randomUUID()}` : undefined;
+  const child = crossSpawn(claim ? process.execPath : bin, claim
+    ? [fileURLToPath(new URL('../../runners/command-runner.cjs', import.meta.url)), claim, bin, ...args]
+    : args, {
     cwd: options.cwd,
     env: childEnv(options.env) as NodeJS.ProcessEnv,
     detached: true,
@@ -98,11 +119,22 @@ export function spawnDetached(
     child.stdout?.on('data', (chunk: Buffer) => options.onStdout?.(chunk));
     child.stderr?.on('data', (chunk: Buffer) => options.onStderr?.(chunk));
   }
-  return { pid: child.pid ?? -1, pgid: child.pid ?? -1, exited };
+  return { pid: child.pid ?? -1, pgid: child.pid ?? -1, exited, claim };
 }
 
 /** Signal a whole process group. Falls back to the single pid on failure. */
-export function signalGroup(pgid: number, signal: NodeJS.Signals, fallbackPid?: number): void {
+export async function signalGroup(pgid: number, signal: NodeJS.Signals, fallbackPid?: number): Promise<void> {
+  if (process.platform === 'win32') {
+    if (!Number.isInteger(pgid) || pgid < 2) return;
+    try {
+      await run('taskkill.exe', ['/PID', String(pgid), '/T', ...(signal === 'SIGKILL' ? ['/F'] : [])]);
+    } catch (error) {
+      // Console processes may reject a non-forced close. The caller rechecks
+      // ownership before escalating; a failed forced termination is reported.
+      if (signal === 'SIGKILL') throw error;
+    }
+    return;
+  }
   try {
     process.kill(-pgid, signal);
   } catch {

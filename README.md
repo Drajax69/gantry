@@ -71,7 +71,7 @@ flowchart TD
 
 ## Get started
 
-The desktop app currently targets **macOS** and is built from source. You'll need:
+The desktop app supports builds for **macOS and Windows** from source. Windows builds require Windows PowerShell (for process ownership checks). You'll need:
 
 - **Node.js 22.12+**, npm, and Git.
 - **GitHub CLI**, authenticated with `gh auth login`, for the GitHub review workflow.
@@ -102,7 +102,9 @@ npm run desktop:build
 open desktop/dist/mac-arm64/Gantry.app
 ```
 
-The output directory depends on your Mac's architecture. Builds are currently unsigned; there is no signed installer. The runtime also runs on Linux, but desktop packaging is configured for macOS. Windows service supervision is not currently supported.
+The output directory depends on your platform and architecture. Builds are currently unsigned. On Windows, `npm run desktop:build` creates an unpacked app; after building the runtime, `npm run app:build:win --prefix desktop` creates an NSIS installer in `desktop/dist`. Build on the target OS so native dependencies match. `app:install` remains a macOS-only convenience command.
+
+Windows uses native window controls, inherits your Windows PATH, and opens ticket conversations in a separate console. Install Git, GitHub CLI and your agent CLI on PATH before launching Gantry. Preview shell commands use `cmd.exe`; use `platform.win32` overrides for POSIX-specific commands. Argument-array commands also support npm `.cmd` shims. Windows process ownership uses PowerShell CIM and a unique wrapper marker before terminating an owned process tree with `taskkill`. Native Windows installer, restart and process-tree lifecycle checks must be completed on a Windows host before distributing a build.
 
 </details>
 

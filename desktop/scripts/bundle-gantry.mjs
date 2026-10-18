@@ -31,6 +31,6 @@ if (!source) {
   for (const relative of ["packages/cli/bin", "packages/server/runners", "packages/ui/dist"]) {
     await fs.cp(path.join(src, relative), path.join(dest, relative), { recursive: true });
   }
-  execFileSync("npm", ["ci", "--omit=dev", "--no-audit", "--no-fund"], { cwd: dest, stdio: "inherit" });
+  execFileSync(process.execPath, [process.env.npm_execpath || (() => { throw new Error("Run bundling through npm run app:bundle."); })(), "ci", "--omit=dev", "--no-audit", "--no-fund"], { cwd: dest, stdio: "inherit" });
 }
 console.log("Gantry runtime staged.");

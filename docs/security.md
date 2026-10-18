@@ -78,7 +78,7 @@ If the check fails, the process is reported and left alone (`recorded pid … is
 
 `interruptProcessGroup` sends SIGTERM to the group, waits up to the grace period (default 4 s, `GANTRY_TAKEOVER_GRACE_MS`), re-verifies ownership, and only then escalates to SIGKILL.
 
-Ownership checks are POSIX `ps`-based today; Windows uses `tasklist`-based checks in a follow-up.
+Ownership checks use `ps` on POSIX. On Windows, PowerShell CIM checks the recorded PID and unique wrapper marker before `taskkill /T` can signal its process tree. Missing command-line access fails closed. Ownership is checked again before forced termination.
 
 ### Secrets in private env files only
 

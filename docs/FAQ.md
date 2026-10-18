@@ -10,7 +10,7 @@ No. Gantry archives previews: services are stopped, ports are released, and the 
 
 ## Does Gantry run on Windows?
 
-The architecture is cross-platform: storage is `node:sqlite`, paths are handled through `node:path`, data directories are resolved per OS, and per-OS command overrides exist (`platform.win32.start`). What is not there yet is Windows process control — ownership verification and process-group signalling are POSIX `ps`-based today. Windows uses `tasklist`-based checks in a follow-up, until then treat Windows as unsupported for takeover and service supervision.
+Windows support includes desktop packaging, native window controls, CLI shims, external conversation consoles and process-tree supervision. Build on Windows using the README instructions. PowerShell CIM verifies the recorded process and unique launch marker before `taskkill` is permitted. Use `platform.win32` overrides for shell commands that depend on POSIX tools. Native Windows lifecycle validation is still required before distributing a build.
 
 ## Can I use Gantry without GitHub?
 

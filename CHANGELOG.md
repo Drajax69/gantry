@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Windows desktop build targets, native window controls, external agent consoles, command-shim support and owned process-tree supervision. Native Windows lifecycle checks remain required before distribution.
+
 - Ship the unified Gantry desktop app with ticket dialogs, column dragging, shared provider settings and external ticket conversations, and integrated PR review.
 - Detect repositories for first-run workspace setup and prepare ticket worktrees independently of any provider.
 - Keep personal state out of the source repository.

@@ -16,6 +16,14 @@ interface PsRecord {
 async function psRecord(pid: number): Promise<PsRecord | null> {
   if (!Number.isInteger(pid) || pid < 2) return null;
   try {
+    if (process.platform === 'win32') {
+      const output = await run('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+        `Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress`], { timeoutMs: 5000 });
+      if (!output) return null;
+      const record = JSON.parse(output) as { ProcessId: number; CommandLine: string | null };
+      if (record.ProcessId !== pid) return null;
+      return { pgid: String(pid), command: record.CommandLine ?? '' };
+    }
     const output = await run('ps', ['-p', String(pid), '-o', 'pgid=,command='], { timeoutMs: 5000 });
     // `ps` pads columns with leading whitespace; trim before splitting.
     const trimmed = output.replace(/^\s+/, '');
@@ -34,12 +42,13 @@ export async function processAlive(pid: number): Promise<boolean> {
 /**
  * Verify a recorded (pid, pgid, claim) triple still identifies a process we
  * started. On Linux `ps -o pgid=` is available; on all POSIX platforms this
- * works. Windows support uses tasklist-based checks in a follow-up.
+ * works. Windows checks the PID and command line via CIM before taskkill.
  */
 export async function ownsProcess(pid: number, pgid: number, claim: string): Promise<boolean> {
   const record = await psRecord(pid);
   if (!record) return false;
   if (String(pgid) !== record.pgid) return false;
+  if (process.platform === 'win32' && !claim) return false;
   if (claim && !record.command.includes(claim)) return false;
   return true;
 }
@@ -55,14 +64,14 @@ export interface InterruptResult {
  */
 export async function interruptProcessGroup(pid: number, pgid: number, claim: string, graceMs: number): Promise<InterruptResult> {
   if (!(await ownsProcess(pid, pgid, claim))) return { interrupted: false, escalated: false };
-  signalGroup(pgid, 'SIGTERM', pid);
+  await signalGroup(pgid, 'SIGTERM', pid);
   const deadline = Date.now() + graceMs;
   while (Date.now() < deadline) {
     if (!(await processAlive(pid))) return { interrupted: true, escalated: false };
     await new Promise((resolve) => setTimeout(resolve, 120));
   }
   if (await ownsProcess(pid, pgid, claim)) {
-    signalGroup(pgid, 'SIGKILL', pid);
+    await signalGroup(pgid, 'SIGKILL', pid);
     await new Promise((resolve) => setTimeout(resolve, 250));
     return { interrupted: true, escalated: true };
   }

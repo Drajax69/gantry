@@ -8,7 +8,7 @@ import type { Database } from '../db/db.js';
 import type { AppContext } from '../config/app.js';
 import type { LoadedProject } from '../projects/registry.js';
 import type { Logger } from '../log.js';
-import { run, spawnDetached, type SpawnHandle } from '../util/exec.js';
+import { run, shellCommand, spawnDetached, type SpawnHandle } from '../util/exec.js';
 import { PortAllocator } from '../ports/ports.js';
 import { ensureMainCheckouts, discoverGroups, type PreviewGroup } from '../discover/discover.js';
 import { buildServiceEnv, resolveServiceCommand } from './env.js';
@@ -428,7 +428,7 @@ export class Supervisor {
     const started = Date.now();
     const commandText = install.kind === 'shell' ? install.value : (install.value as string[]).join(' ');
     this.log.info(`${previewId}:${service.id}: installing (${commandText})`);
-    if (install.kind === 'shell') await run('sh', ['-c', install.value], { cwd: checkout.path, timeoutMs: 900_000 });
+    if (install.kind === 'shell') await run(...shellCommand(install.value), { cwd: checkout.path, timeoutMs: 900_000 });
     else await run(String((install.value as string[])[0]), (install.value as string[]).slice(1), { cwd: checkout.path, timeoutMs: 900_000 });
     await fsp.mkdir(path.dirname(stampFile), { recursive: true, mode: 0o700 });
     await fsp.writeFile(stampFile, JSON.stringify({ installedAt: new Date().toISOString(), ms: Date.now() - started }), { mode: 0o600 });
@@ -461,7 +461,7 @@ export class Supervisor {
 
     for (const hook of service.hooks.preStart) {
       const command = hook.kind === 'argv' ? hook : { kind: 'shell' as const, value: interpolate(hook.value, vars) };
-      if (command.kind === 'shell') await run('sh', ['-c', command.value], { cwd: workDir, timeoutMs: 120_000 });
+      if (command.kind === 'shell') await run(...shellCommand(command.value), { cwd: workDir, timeoutMs: 120_000 });
       else await run(String((command.value as string[])[0]), (command.value as string[]).slice(1), { cwd: workDir, timeoutMs: 120_000 });
     }
 
@@ -514,7 +514,7 @@ export class Supervisor {
     } else {
       const command = resolveServiceCommand(service, 'start', vars);
       if (!command) throw new Error(`service ${service.id} has no start command`);
-      argv = command.kind === 'argv' ? [String((command.value as string[])[0]), ...(command.value as string[]).slice(1)] : ['sh', '-c', String(command.value)];
+      argv = command.kind === 'argv' ? [String((command.value as string[])[0]), ...(command.value as string[]).slice(1)] : (() => { const [bin, args] = shellCommand(String(command.value)); return [bin, ...args]; })();
     }
 
     const fd = fs.openSync(logFile, 'a', 0o600);
@@ -543,7 +543,7 @@ export class Supervisor {
       state: 'starting',
       pid: handle.pid,
       pgid: handle.pgid,
-      pid_claim: claim,
+      pid_claim: handle.claim ?? claim,
       signature,
       port,
       started_at: new Date().toISOString(),
@@ -578,7 +578,7 @@ export class Supervisor {
   private async runPostStartHooks(service: ServiceConfig, cwd: string, vars: Record<string, string>): Promise<void> {
     for (const hook of service.hooks.postStart) {
       const command = hook.kind === 'argv' ? hook : { kind: 'shell' as const, value: interpolate(hook.value, vars) };
-      if (command.kind === 'shell') await run('sh', ['-c', command.value], { cwd, timeoutMs: 120_000 });
+      if (command.kind === 'shell') await run(...shellCommand(command.value), { cwd, timeoutMs: 120_000 });
       else await run(String((command.value as string[])[0]), (command.value as string[]).slice(1), { cwd, timeoutMs: 120_000 });
     }
   }
