@@ -85,7 +85,7 @@ export function ExecutionControls({ ticket, selected, refresh }: { ticket: Ticke
               </Button>
             )}
             {attempts.at(-1)?.sessionId && attempts.at(-1)?.providerKind !== 'openai' && (
-              <Button size="sm" variant="ghost" disabled={busy || active} onClick={() => void action('open')}>
+              <Button size="sm" variant="ghost" disabled={busy || (active && attempts.at(-1)?.providerKind !== 'codex')} onClick={() => void action('open')}>
                 <MessageSquareIcon />
                 Open stage chat
               </Button>

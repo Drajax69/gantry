@@ -95,7 +95,7 @@ export interface PullGroupView {
   id: string;
   projectId: string;
   branch: string;
-  pulls: Record<string, { number: number; title: string; url: string; branch: string; head: string; ready: boolean; blockers: string[] }>;
+  pulls: Record<string, { number: number; title: string; url: string; branch: string; head: string; draft?: boolean; ready: boolean; blockers: string[] }>;
   previewId: string | null;
   previewUrl: string | null;
   ready: boolean;

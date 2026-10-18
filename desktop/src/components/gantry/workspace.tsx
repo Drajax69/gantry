@@ -14,6 +14,7 @@ import { api } from "@/lib/client/api";
 import { gantry, type ProjectView, type StatusView, type TicketView } from "@/lib/client/gantry";
 
 import { WorkspaceGraphPage } from "./workflow-canvas";
+import { TicketPullRequests } from "./ticket-pull-requests";
 import { TicketGraph } from "./ticket-graph";
 import { useTicketColors } from "./ticket-colors";
 import { Workspace as ReviewWorkspace } from "@/components/space/workspace";
@@ -194,6 +195,7 @@ export function GantryWorkspace() {
                   <button onClick={() => openTicket(t.id)} className="flex w-full flex-col gap-3 p-3 text-left focus-visible:outline-2 focus-visible:outline-ring" aria-pressed={selected === t.id}>
                     <span className="flex items-start gap-2 break-words text-sm font-semibold"><span aria-hidden="true" className="gantry-ticket-dot mt-1 size-2 shrink-0 rounded-full" />{t.title}</span>
                     <span className="flex max-w-full items-center gap-1.5 text-xs text-muted-foreground"><GitBranchIcon className="size-3 shrink-0" /><span className="truncate font-mono">{t.branch}</span></span>
+                    <TicketPullRequests ticket={t} groups={data?.pulls ?? []} />
                     {t.workflow && <span className={cn("text-xs", graphSummary(t.workflow, t.execution)?.waiting ? "font-semibold text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>{graphSummary(t.workflow, t.execution)?.text}</span>}
                     {t.conversation && <span className="text-xs text-muted-foreground">Chat linked · {t.conversation.providerName}</span>}
                     {t.run && <span className="text-xs text-muted-foreground">{t.run.agent} · {t.run.state}</span>}
@@ -275,7 +277,7 @@ export function GantryWorkspace() {
             {log && <section className="border-b p-6"><div className="mb-3 flex items-center justify-between gap-3"><h2 className="font-medium">{log.title}</h2><Button variant="ghost" size="sm" onClick={() => setLog(null)}>Close log</Button></div><pre className="max-h-80 overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">{log.text || "No output yet."}</pre></section>}
             {(creating || ticketTab === "details") && <section id="ticket-details" aria-label="Ticket details">
             <div className={creating ? "max-w-3xl" : "min-w-0"}>{creating ? <TicketForm key={`new-${project.id}`} project={project} busy={busy} onCancel={() => setCreating(false)} onSave={async (input) => { await act(async () => { const t = await gantry.createTicket(project.id, input); setSelected(t.id); setCreating(false); }); }} /> : ticket &&
-              <TicketDetail key={ticket.id} editing={editingTicket} setEditing={setEditingTicket} ticket={ticket} project={project} busy={busy || movingTickets.has(ticket.id)} act={act} onReview={(urls) => review(urls, ticket)} onLog={showLog} onDeleted={closeTicket} onStage={status => moveTicket(ticket.id, status)} />}</div></section>}
+              <TicketDetail key={ticket.id} editing={editingTicket} setEditing={setEditingTicket} ticket={ticket} pullGroups={data?.pulls ?? []} project={project} busy={busy || movingTickets.has(ticket.id)} act={act} onReview={(urls) => review(urls, ticket)} onLog={showLog} onDeleted={closeTicket} onStage={status => moveTicket(ticket.id, status)} />}</div></section>}
         {ticket && ticketTab === "preview" && ticket.status === "in_progress" && <section id="ticket-preview" aria-label="Ticket preview" className="divide-y"><h3 className="pb-4 text-sm font-medium">Preview</h3>{ticketPreviews.map((p) => <section key={p.id} className="space-y-4 p-6">
           <div className="flex flex-wrap items-center gap-3"><GitBranchIcon className="size-4 text-muted-foreground" /><h2 className="min-w-0 break-all font-medium">{p.isPrimary ? "Main workspace" : p.branch}</h2><State value={p.paused ? "paused" : p.status} /><div className="flex-1" />
             {!p.archived && !p.retired && !p.removed ? <><Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => gantry.previewAction(p.id, p.paused ? "resume" : "pause"))}>{p.paused ? "Resume" : "Pause"}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(() => gantry.previewAction(p.id, "restart"))}>Restart</Button></> : <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => gantry.previewAction(p.id, "restore"))}>Restore</Button>}
@@ -310,7 +312,7 @@ function TicketForm({ project, ticket, busy, onSave, onCancel }: { project: Proj
   </form>;
 }
 
-function TicketDetail({ ticket: t, project, busy, act, onReview, onLog, onDeleted, editing, setEditing, onStage }: { onStage: (status: string) => Promise<void>; editing: boolean; setEditing: (value: boolean) => void; ticket: TicketView; project: ProjectView; busy: boolean; act: (action: () => Promise<unknown>, message?: string) => Promise<boolean>; onReview: (urls: string[]) => Promise<void>; onLog: (title: string, url: string) => Promise<void>; onDeleted: () => void }) {
+function TicketDetail({ ticket: t, pullGroups, project, busy, act, onReview, onLog, onDeleted, editing, setEditing, onStage }: { onStage: (status: string) => Promise<void>; editing: boolean; setEditing: (value: boolean) => void; ticket: TicketView; pullGroups: StatusView["pulls"]; project: ProjectView; busy: boolean; act: (action: () => Promise<unknown>, message?: string) => Promise<boolean>; onReview: (urls: string[]) => Promise<void>; onLog: (title: string, url: string) => Promise<void>; onDeleted: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const running = t.run && ["starting", "running", "interrupting"].includes(t.run.state);
@@ -318,10 +320,11 @@ function TicketDetail({ ticket: t, project, busy, act, onReview, onLog, onDelete
   return <div className="space-y-6">
     <TicketWorkflow key={t.id} ticket={t} refresh={() => act(async () => {})} />
     <div className="space-y-3"><div className="flex items-start gap-3"><h2 className="min-w-0 flex-1 break-words text-lg font-semibold">{t.title}</h2><Button variant="ghost" size="sm" disabled={busy} onClick={() => { setEditing(true); }}>Edit</Button></div><p className="break-all font-mono text-xs text-muted-foreground">{t.branch}</p>
+      <TicketPullRequests ticket={t} groups={pullGroups} />
       <label className="flex items-center gap-3 text-sm">Stage<select className={selectClass} value={t.status} disabled={busy} onChange={(e) => void onStage(e.target.value)}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{t.description || "No notes added."}</p>
     </div>
-    {t.status === "in_progress" && <section className="space-y-3 border-t pt-5">{t.execution ? <p className="text-sm text-muted-foreground">Each workflow stage has its own conversation. Select a stage in the graph to see its history. Pause automation before opening a stage chat for manual work.</p> : <TicketConversation ticketId={t.id} done={false} />}
+    {t.status === "in_progress" && <section className="space-y-3 border-t pt-5">{t.execution ? <p className="text-sm text-muted-foreground">Each workflow stage has its own conversation. Select a stage in the graph to see its history. Open a Codex stage chat while it runs. For terminal providers, pause before opening the chat.</p> : <TicketConversation ticketId={t.id} done={false} />}
       <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy || !!running} onClick={() => void act(() => ticketChatRequest(t.id, "prepare"), "Ticket worktrees are ready")}>Create worktrees</Button></div>
       {t.run && <div className="flex flex-wrap items-center gap-2"><State value={t.run.state} /><Button size="sm" variant="ghost" disabled={busy} onClick={() => void onLog("Previous agent output", t.run!.logUrl)}>View previous output</Button>{running && <Button variant="outline" disabled={busy} onClick={() => void act(() => gantry.handoffTicket(t.id), "Previous agent stopped. You can continue in Chat.")}>Take over</Button>}</div>}
     </section>}

@@ -10,6 +10,8 @@ export interface Attempt {
   summary: string;
   output: string;
   sessionId?: string;
+  chatOpened?: boolean;
+  chatVersion?: string;
   providerId: string;
   providerKind: 'codex' | 'claude' | 'openai';
   model: string;
