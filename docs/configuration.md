@@ -14,6 +14,20 @@ Validation collects *all* problems and reports them together, then `validateConf
 
 ## Top level
 
+### Starter graph
+
+New configs created by **Add workspace** or `gantry init` include an automatic
+**Plan → Implement → Review → Create PR** graph. Each stage includes instructions;
+implementation runs relevant tests, review can route corrections back to
+implementation, and the final stage commits, pushes, and creates or updates PRs.
+The graph never merges or deploys. Stages inherit the selected provider and model
+unless overridden in **Workspace graph**. Keep Gantry open to execute stages.
+
+Existing custom graphs are preserved. Existing configs without `workflow` show
+the starter layout with automation off until explicitly enabled. To install the
+automatic graph manually, copy the `workflow` section from
+[the starter graph example](../examples/starter-workflow.yaml).
+
 | Key | Type | Default | Description |
 | --- | ---- | ------- | ----------- |
 | `apiVersion` | string | — (required) | Must be `gantry.dev/v1`. |
@@ -24,6 +38,7 @@ Validation collects *all* problems and reports them together, then `validateConf
 | `promptTemplates` | array | `[]` | Project prompt templates. |
 | `scopes` | array | `[]` | Deprecated legacy categories; accepted for compatibility, no longer offered as choices. |
 | `agents` | array | `[]` | Per-agent overrides (`binary`, extra `args`). |
+| `workflow` | object | Starter graph, automation off when omitted | Stage instructions, positions, connections, and automatic execution. New-workspace setup writes the automatic starter explicitly. |
 | `safety` | object | see below | Validation policy rendered into prompts. |
 
 Ticket scopes are the service IDs declared in `services` in `gantry.yaml`. The ticket form offers checkboxes and allows multiple selections; new tickets select all current services by default. Clear all selections for workspace-wide work. Workspaces with no services offer no scope choices.

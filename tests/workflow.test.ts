@@ -2,11 +2,12 @@ import { describe, test, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parse } from 'yaml';
 import { DEFAULT_WORKFLOW, exportWorkflow, importWorkflow, newWorkflow, readySteps, workflowSchema, workflowSummary } from '../packages/shared/src/workflow.js';
 import { changeStep, replaceGraph, saveTicketWorkflow, ticketWorkflow } from '../packages/server/src/tickets/workflow.js';
 import { TicketStore } from '../packages/server/src/tickets/store.js';
 import { openDatabase } from '../packages/server/src/db/db.js';
-import { saveWorkspaceWorkflow } from '../packages/server/src/projects/workflow.js';
+import { saveWorkspaceWorkflow, workspaceWorkflow, starterWorkflowYaml } from '../packages/server/src/projects/workflow.js';
 import { loadProject } from '../packages/server/src/projects/registry.js';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-workflow-test-'));
@@ -20,6 +21,15 @@ const fork = {
   ],
 };
 describe('workflow graph', () => {
+  test('starter graph and setup example share executable stages and review routes', () => {
+    const graph = workflowSchema.parse(DEFAULT_WORKFLOW);
+    expect(graph.autoStart).toBe(true);
+    expect(graph.nodes.map(node => node.id)).toEqual(['plan', 'implement', 'review', 'create-pr']);
+    expect(graph.edges?.filter(edge => edge.source === 'review').map(edge => edge.target)).toEqual(['implement', 'create-pr']);
+    expect(graph.nodes.every(node => node.instructions.length > 300 && !node.providerId && !node.model)).toBe(true);
+    expect(parse(fs.readFileSync(new URL('../examples/starter-workflow.yaml', import.meta.url), 'utf8')).workflow).toEqual(graph);
+    expect(parse(starterWorkflowYaml()).workflow).toEqual(graph);
+  });
   test('rejects cycles, unknown dependencies, duplicate ids and empty graphs', () => {
     expect(workflowSchema.safeParse({ nodes: [] }).success).toBe(false);
     expect(workflowSchema.safeParse({ nodes: [fork.nodes[0], fork.nodes[0]] }).success).toBe(false);
@@ -93,9 +103,12 @@ describe('workflow graph', () => {
       '# Keep this comment\napiVersion: gantry.dev/v1\nproject:\n  id: test\n  name: TEST_workspace_graph\nrepositories:\n  - id: app\n    path: .\npromptTemplates:\n  - id: custom\n    label: Custom\n    body: Keep my instructions\n',
     );
     const project = await loadProject(workspace);
+    // Existing configs receive the layout without silently enabling automation.
+    expect(workspaceWorkflow(project)).toEqual({ ...DEFAULT_WORKFLOW, autoStart: false });
     saveWorkspaceWorkflow(project, fork);
     const reloaded = await loadProject(workspace);
     expect(reloaded.config.workflow).toEqual(fork);
+    expect(workspaceWorkflow(reloaded)).toEqual(fork);
     expect(reloaded.config.promptTemplates[0]!.body).toBe('Keep my instructions');
     expect(fs.readFileSync(project.configPath, 'utf8')).toContain('# Keep this comment');
   });

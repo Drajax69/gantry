@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { starterWorkflowYaml } from '@gantry/server/projects/workflow.js';
 import { openDatabase } from '@gantry/server/db/db.js';
 import { createAppContext } from '@gantry/server/config/app.js';
 import { GantryApp } from '@gantry/server/app.js';
@@ -97,7 +98,7 @@ async function cmdInit(dir?: string): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  await fs.writeFile(file, STARTER_YAML, { mode: 0o600 });
+  await fs.writeFile(file, `${STARTER_YAML}\n${starterWorkflowYaml()}`, { mode: 0o600 });
   console.log(`Wrote ${file}. Edit it to match your repositories and services, then run: gantry add ${target}`);
 }
 

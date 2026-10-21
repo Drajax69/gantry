@@ -21,6 +21,10 @@ test('new workspace needs no provider config, prepares reusable ticket branches,
     await initializeWorkspace(workspace);
     const project = await app.addWorkspace(workspace);
     assert.equal(project.config.services.length, 0);
+    assert.deepEqual(project.config.workflow, DEFAULT_WORKFLOW);
+    const initializedConfig = await fs.readFile(project.configPath, 'utf8');
+    await initializeWorkspace(workspace);
+    assert.equal(await fs.readFile(project.configPath, 'utf8'), initializedConfig);
     const ticket = app.tickets.create(project.config.project.id, { title: 'Build a feature', scope: 'both' }, project.config.scopes.map(s => s.id), 'ticket', DEFAULT_WORKFLOW);
     assert.equal((await ticketWorkspace(app, ticket.id)).checkouts.length, 0);
     const first = await ticketWorkspace(app, ticket.id, true);

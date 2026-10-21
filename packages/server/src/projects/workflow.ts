@@ -1,10 +1,16 @@
 import fs from 'node:fs';
-import { parseDocument } from 'yaml';
+import { parseDocument, stringify } from 'yaml';
 import { DEFAULT_WORKFLOW, workflowSchema, parseProjectConfig } from '@gantry/shared';
 import type { LoadedProject } from './registry.js';
 
+export function starterWorkflowYaml() {
+  return stringify({ workflow: DEFAULT_WORKFLOW });
+}
+
 export function workspaceWorkflow(project: LoadedProject) {
-  return project.config.workflow ?? structuredClone(DEFAULT_WORKFLOW);
+  // Existing configs without a graph get the starter layout, without silently
+  // enabling execution. Newly initialized workspaces persist the automatic graph.
+  return project.config.workflow ?? { ...structuredClone(DEFAULT_WORKFLOW), autoStart: false };
 }
 export function saveWorkspaceWorkflow(project: LoadedProject, input: unknown) {
   const graph = workflowSchema.parse(input);

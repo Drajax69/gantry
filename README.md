@@ -6,7 +6,7 @@
 
 **Turn a ticket into working software—with your favourite coding agents.**
 
-Give them the plan. Let them build, test, and review. Try the result. All in one desktop app.
+Describe the idea. Your agents plan, build, review, and open the PR—all in one desktop app.
 
 [**Get started ↓**](#get-started) · [Explore the docs](docs/FAQ.md) · [Give feedback](https://github.com/Drajax69/gantry/issues)
 
@@ -14,6 +14,25 @@ Give them the plan. Let them build, test, and review. Try the result. All in one
 Open source · macOS & Windows · MIT licensed
 
 </div>
+
+## Your idea. A team of agents. One graph.
+
+```mermaid
+flowchart LR
+    Plan["1 · Plan<br/>Understand the task"] --> Implement["2 · Implement<br/>Build & test"]
+    Implement --> Review["3 · Review<br/>Check the work"]
+    Review -->|Looks good| PR["4 · Create PR<br/>Ready for you"]
+    Review -->|Needs changes| Implement
+
+    style Plan fill:#ede9fe,stroke:#8b5cf6,color:#2e1065
+    style Implement fill:#dbeafe,stroke:#3b82f6,color:#172554
+    style Review fill:#fef3c7,stroke:#f59e0b,color:#451a03
+    style PR fill:#d1fae5,stroke:#10b981,color:#064e3b
+```
+
+**This graph comes ready to run.** Every stage has a built-in prompt. Review sends fixes back to implementation; approved work becomes a PR.
+
+Drag stages around. Connect your own steps. Pick a different agent or model for each one—or just use the defaults.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/ticket-board-dark.png">
@@ -28,11 +47,9 @@ Open source · macOS & Windows · MIT licensed
 | | |
 | --- | --- |
 | **Start with a ticket.** | Describe what you want. Drag it into **In progress**. Your agent gets to work. |
-| **Build your dream team.** | Pick different agents for planning, building, testing, and review. Let them hand off the work. |
+| **Build your dream team.** | A ready-made graph handles planning, implementation, review, and the PR. Customize any stage. |
 | **See it working.** | Open a running preview of your feature, right beside your tickets. |
 | **Keep the whole feature together.** | Chats, changes, and pull requests stay with the ticket—even across repositories. |
-
-<p align="center"><strong>Idea → Plan → Build → Test → Review</strong><br><sub>Set up your workflow once. Use it for every ticket.</sub></p>
 
 ## Get started
 
@@ -62,11 +79,11 @@ Open your project in your coding agent and paste:
 
 > Set up Gantry for this folder using https://github.com/Drajax69/gantry/blob/main/SETUP.md
 
-Your agent can configure the workspace and its previews for you.
+Your agent configures the workspace, previews, and starter graph for you.
 
 Choose your agent in **Settings** → **Add workspace** → create a ticket → drag it into **In progress**.
 
-Want agents to handle the handoffs? Open **Workspace graph**, choose your steps, and enable **Run automatically**. [Set up previews and workflows →](docs/configuration.md)
+New workspaces start the graph automatically when a ticket enters **In progress**. Keep Gantry open and follow each stage in **Workspace graph**. No graph-building required.
 
 <details>
 <summary><strong>Want a standalone app?</strong></summary>

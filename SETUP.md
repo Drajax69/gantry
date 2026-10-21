@@ -7,7 +7,8 @@ Give your coding agent this guide and say:
 **Instructions for the agent:** complete the setup below in the user's target
 folder. Discover what you can from the code. Ask only when a missing decision
 prevents a working configuration. Do not just return a sample YAML file—write it
-and validate it.
+and validate it. Include the ready-to-run Plan → Implement → Review → Create PR
+graph so the user does not have to build a workflow by hand.
 
 ## 1. Inspect the workspace
 
@@ -136,7 +137,39 @@ placeholders and explain what the user needs to fill in. Ensure private files
 are ignored by the owning Git repository. Preview processes have separate ports;
 database separation requires separate database configuration.
 
-## 5. Validate before handing off
+## 5. Install the starter graph
+
+For a new workspace, include a `workflow` with **Plan → Implement → Review →
+Create PR**, a Review → Implement correction loop, and `autoStart: true`. Each
+stage must have its built-in instructions, not an empty prompt. Leave provider
+and model overrides unset so all stages inherit the user's provider in Settings.
+Keep the node positions so the graph is readable immediately.
+
+Gantry's **Add workspace** and `gantry init` already write this graph when they
+create a new config. If you create `gantry.yaml` yourself, copy the `workflow`
+section from [the starter graph](examples/starter-workflow.yaml) into it.
+When fetching outside this repository, use:
+
+https://raw.githubusercontent.com/amriteshdasgupta/gantry/main/examples/starter-workflow.yaml
+
+Use the full prompts from that file. Adapt them only for discovered project
+conventions (for example, exact test commands). Planning does not edit code;
+implementation includes relevant testing; review independently checks the full
+diff and sends actionable findings back; Create PR commits and publishes only
+reviewed work. No stage merges or deploys. Missing prerequisites are reported
+as a waiting state, not silently skipped.
+
+If a workspace already has a graph, preserve it and its automatic-run setting.
+If its config has no `workflow`, add the starter graph as part of this requested
+setup. Do not replace existing custom graphs with the default.
+
+Tell the user that moving a ticket into **In progress** starts the stages while
+Gantry is open, using their configured coding provider, and that the final stage
+pushes the ticket branch and opens a PR. They can customize the graph or turn off
+**Run automatically** in **Workspace graph**. Do not create or start a ticket as
+part of setup itself.
+
+## 6. Validate before handing off
 
 Check YAML syntax, required fields, unique IDs, repository paths, commands,
 service references, dependencies, and environment-file paths. Confirm each
@@ -160,7 +193,7 @@ Smoke-test local preview commands when the workspace instructions allow it and
 the required local dependencies are available. Stop processes you started.
 Distinguish config validation from successfully running the application.
 
-## 6. Make the next step obvious
+## 7. Make the next step obvious
 
 Tell the user:
 
@@ -171,9 +204,8 @@ Tell the user:
    workspace**, and choose this folder. Then create a ticket and move it into
    **In progress**.
 
-Offer **Workspace graph** for automated planning, implementation, testing, and
-review. Do not enable an automatic workflow or create a test ticket as part of
-configuration alone.
+Confirm the starter graph is configured with its stage prompts and review loop.
+Point to **Workspace graph** for customization; no manual stage setup is needed.
 
 If the user wants future agents to maintain this setup, append a short Gantry
 section to their existing `AGENTS.md` (or their agent's instruction file),

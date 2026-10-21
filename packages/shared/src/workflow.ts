@@ -86,16 +86,46 @@ export interface WorkflowRun {
   states: Record<string, { state: StepState; message: string }>;
 }
 export const DEFAULT_WORKFLOW: Workflow = {
+  autoStart: true,
+  entryNodeId: 'plan',
+  edges: [
+    { id: 'plan-implement', source: 'plan', target: 'implement', label: 'The implementation plan is complete and no consequential question is unresolved.' },
+    { id: 'implement-review', source: 'implement', target: 'review', label: 'Implementation and relevant local validation are complete.' },
+    { id: 'review-implement', source: 'review', target: 'implement', label: 'Review found actionable issues and requested changes. Implement the corrections, then review again.' },
+    { id: 'review-create-pr', source: 'review', target: 'create-pr', label: 'Review passed with no unresolved actionable findings and the relevant validation passed.' },
+  ],
   nodes: [
-    { id: 'plan', label: 'Plan', kind: 'agent', instructions: 'Inspect the repository and plan the implementation.', dependsOn: [] },
-    { id: 'implement', label: 'Implement', kind: 'agent', instructions: 'Implement the ticket following the plan.', dependsOn: ['plan'] },
-    { id: 'test', label: 'Test', kind: 'agent', instructions: 'Run appropriate local validation and fix failures.', dependsOn: ['implement'] },
     {
-      id: 'trace',
-      label: 'Create Playwright trace',
+      id: 'plan', label: 'Plan', kind: 'agent', position: { x: 80, y: 160 }, dependsOn: [],
+      instructions: `Read the ticket, workspace and repository instructions, and Git status in each relevant checkout. Trace the existing behaviour and affected callers before proposing changes.
+Create a concise, actionable plan: intended user-visible outcome, acceptance criteria, files and repositories involved, implementation steps, and the smallest meaningful validation. Follow the existing architecture and package manager. Identify material edge cases and compatibility concerns.
+Make routine decisions yourself. Ask only when an unresolved choice materially affects scope or correctness; otherwise hand off a concrete plan with outcome done. If blocked on a decision, use outcome waiting and state the exact question.
+This stage is planning only: do not edit product code, commit, push, or open a PR.`,
+    },
+    {
+      id: 'implement', label: 'Implement', kind: 'agent', position: { x: 400, y: 160 }, dependsOn: ['plan'], maxAttempts: 3,
+      instructions: `Implement the plan in the prepared ticket worktrees. Read the prior handovers and repository instructions, inspect Git status, and preserve unrelated work. If this is a return from Review, address every actionable finding first.
+Follow surrounding patterns and keep the change focused. Update affected callers, types, documentation, and contracts together. Add or update meaningful tests for changed behaviour. Run the relevant local checks; for user-facing changes, exercise the affected journey against a local preview when available. Do not require browser tests for changes without a browser surface.
+Fix failures introduced by the change. Report exact commands, results, and any unavailable validation honestly. Hand off a summary of changes, acceptance criteria covered, and remaining limitations. Use outcome waiting if a required dependency or decision blocks completion.
+Do not push or open a PR; publishing belongs to Create PR. Do not merge or deploy.`,
+    },
+    {
+      id: 'review', label: 'Review', kind: 'agent', position: { x: 720, y: 160 }, dependsOn: ['implement'], freshSession: true,
+      instructions: `Independently review the implementation against the ticket, plan, and repository instructions. Inspect the full ticket diff, including uncommitted and newly added files, and enough surrounding code to verify affected callers and contracts. Do not rely only on the implementer's summary.
+Prioritize correctness, regressions, missing requirements, access control, data integrity, and failure handling. Verify suspected issues in the actual code and run focused local checks when useful. Keep validation proportional to the change; distinguish confirmed defects from speculation or style preferences.
+If actionable issues remain, return outcome changes_requested with file locations, triggering scenarios, impact, and concrete corrections for Implement. Do not fix the implementation in this stage.
+Otherwise return outcome done, explicitly state there are no actionable findings, and summarize validation and its limits. If required verification cannot be completed, return waiting rather than approving without evidence. Do not commit, push, create a PR, merge, or deploy.`,
+    },
+    {
+      id: 'create-pr',
+      label: 'Create PR',
       kind: 'agent',
-      instructions: 'Verify the local preview and save private browser evidence.',
-      dependsOn: ['test'],
+      position: { x: 1040, y: 160 },
+      dependsOn: ['review'],
+      instructions: `Publish the reviewed work. Confirm the latest review passed, relevant checks passed, and no actionable findings remain. Inspect Git status and the full diff in every changed repository. Stage only the ticket's intended changes; exclude secrets, private environment files, logs, and generated evidence.
+Commit with a concise message matching repository conventions. Push the ticket branch without force-pushing. Use the repository's actual remote and base branch. Create a GitHub pull request for each changed repository, or update the existing PR for that branch rather than duplicating it.
+Give each PR a clear title and a concise description of the outcome, key changes, exact validation results, and any limitations. Link related PRs when the ticket spans repositories. Report every PR URL in the structured pullRequests handover.
+If authentication, permissions, missing validation, or unresolved findings block publication, return waiting with the concrete next step. Never claim a PR exists without confirming it. Do not merge or deploy.`,
     },
   ],
 };

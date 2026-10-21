@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { stringify } from 'yaml';
+import { DEFAULT_WORKFLOW } from '@gantry/shared';
 import { findConfigFile } from './registry.js';
 import { git } from '../git/git.js';
 
@@ -27,5 +28,5 @@ export async function initializeWorkspace(input: string) {
     const exclude = await git(root, 'rev-parse', '--git-path', 'info/exclude');
     await fs.appendFile(path.resolve(root, exclude), '\n/gantry.yaml\n/.worktrees/\n', { mode: 0o600 });
   }
-  await fs.writeFile(path.join(workspace, 'gantry.yaml'), stringify({ apiVersion: 'gantry.dev/v1', project: { id: `${slug(path.basename(workspace))}-${createHash('sha256').update(workspace).digest('hex').slice(0, 8)}`, name: path.basename(workspace) }, repositories, services: [] }), { flag: 'wx', mode: 0o600 });
+  await fs.writeFile(path.join(workspace, 'gantry.yaml'), stringify({ apiVersion: 'gantry.dev/v1', project: { id: `${slug(path.basename(workspace))}-${createHash('sha256').update(workspace).digest('hex').slice(0, 8)}`, name: path.basename(workspace) }, repositories, services: [], workflow: DEFAULT_WORKFLOW }), { flag: 'wx', mode: 0o600 });
 }
