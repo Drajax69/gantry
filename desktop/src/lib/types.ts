@@ -1,4 +1,6 @@
-export type TargetKind = "pull" | "commit" | "compare" | "tree";
+// "local" is a ticket's own commits in its worktree, for outputs that never became a PR (a plan, notes).
+// "doc" is a document on a service outside git (a wiki page, a planning doc), mirrored locally and published back.
+export type TargetKind = "pull" | "commit" | "compare" | "tree" | "local" | "doc";
 
 export type FileStatus = "A" | "M" | "D" | "R";
 
@@ -23,7 +25,7 @@ export interface TargetInfo {
   subtitle: string;
   /** Pull requests only. */
   prState?: PrState;
-  url: string; // github.com link
+  url: string; // github.com link, the document's own URL, or empty for local targets
   headBranch?: string;
   headSha: string;
   baseSha: string | null; // null for plain tree browsing (no diff)
@@ -130,6 +132,8 @@ export interface Space {
   /** One of SPACE_COLORS and an emoji; spaces made before these existed get stable defaults. */
   color?: string;
   emoji?: string;
+  /** Ticket outputs that live elsewhere (a doc, a sheet), shown beside the tabs. Synced from the ticket. */
+  links?: { url: string; title: string }[];
   updatedAt: number;
 }
 
@@ -142,7 +146,7 @@ export interface SpacesResponse {
 export type TargetChatEvent = ChatEvent & { target: string };
 
 /** How an agent is reached: a local CLI (Claude Code, Codex) or an OpenAI-compatible API. */
-export type AgentKind = "claude" | "codex" | "openai";
+export type AgentKind = "claude" | "codex" | "opencode" | "openai";
 
 /** An agent as the client sees it. The API key never leaves the server. */
 export interface Agent {

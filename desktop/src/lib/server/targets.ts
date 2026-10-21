@@ -7,6 +7,8 @@ import { prStateOf } from "@/lib/pr-state";
 import { CommandError, DIRS, gh, git, gitNet, safeName, withLock } from "./exec";
 import { splitDiff, type FileDiff } from "./diff";
 import { httpError } from "./http";
+import { ticketContext } from "./ticket-chat";
+import { DOC_FILE, docRecord, fetchDoc } from "./docs";
 
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
@@ -150,9 +152,78 @@ export function getTarget(id: string, refresh = false): Promise<PreparedTarget> 
   return p;
 }
 
+/** A ticket's local output, as a target id. GitHub owners can't start with "~", so these never clash with a PR. */
+export const localTargetId = (ticketId: string, repoId: string, baseBranch: string) => `~${ticketId}/${repoId}/local/${baseBranch}`;
+
+/** Whether a ref names a commit in this repo. */
+const hasRef = (dir: string, ref: string) => git(dir, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`).then(() => true, () => false);
+
+/** The base a ticket branch is compared with: the remote's copy of the base branch when there is one, as the local one is often stale. */
+export async function localBase(worktree: string, baseBranch: string, head: string): Promise<string | null> {
+  for (const ref of [`refs/remotes/origin/${baseBranch}`, `refs/heads/${baseBranch}`]) {
+    if (await hasRef(worktree, ref)) return (await git(worktree, "merge-base", ref, head)).trim();
+  }
+  return null;
+}
+
+/**
+ * A ticket's commits in one of its worktrees, read from that worktree directly. Everything is local:
+ * no clone, no fetch, and the worktree is never checked out, so the ticket's own work is untouched.
+ */
+async function prepareLocal(id: string, ticketId: string, repoId: string, baseBranch: string): Promise<PreparedTarget> {
+  const work = await ticketContext(ticketId);
+  const worktree = work.checkouts.find((c) => c.repositoryId === repoId)?.path;
+  if (!worktree) throw httpError(404, `This ticket has no ${repoId} worktree.`);
+  const branch = work.ticket.branch;
+  const head = (await git(worktree, "rev-parse", `refs/heads/${branch}^{commit}`)).trim();
+  const base = await localBase(worktree, baseBranch, head);
+  if (!base) throw httpError(404, `Couldn't find ${baseBranch} in ${repoId}.`);
+  const commits = Number((await git(worktree, "rev-list", "--count", `${base}..${head}`)).trim());
+  return {
+    info: {
+      id, kind: "local", owner: `~${ticketId}`, repo: repoId,
+      title: work.ticket.title,
+      subtitle: `${branch} · ${commits} local commit${commits === 1 ? "" : "s"}`,
+      url: "", headSha: head, baseSha: base, headBranch: branch,
+    },
+    repoDir: worktree,
+    worktree,
+    description: `Local output of the Gantry ticket "${work.ticket.title}": the commits on ${branch} in its ${repoId} worktree since ${baseBranch}. There is no pull request; the files live in this worktree.\n\n${work.ticket.description || "(no description)"}`,
+    diff: splitDiff(await git(worktree, "diff", "-M", "--no-color", "--no-ext-diff", base, head)),
+  };
+}
+
+/**
+ * A document from a service outside git, through its local mirror (see docs.ts). Opening or
+ * refreshing fetches it; the diff is what changed on the service since the previous fetch.
+ */
+async function prepareDoc(id: string, key: string): Promise<PreparedTarget> {
+  const doc = docRecord(key);
+  const { dir, head } = await fetchDoc(key);
+  const base = await git(dir, "rev-parse", "--verify", "--quiet", `${head}^`).then((s) => s.trim(), () => EMPTY_TREE);
+  // Links only carry a host name, so the document's own first heading names it.
+  const heading = (await git(dir, "show", `${head}:${DOC_FILE}`).catch(() => "")).match(/^#\s+(.+)$/m)?.[1]?.trim();
+  return {
+    info: {
+      id, kind: "doc", owner: "~doc", repo: doc.source.label,
+      title: heading || doc.title, subtitle: `${doc.source.label} document`,
+      url: doc.url, headSha: head, baseSha: base,
+    },
+    repoDir: dir,
+    worktree: dir,
+    description: `A ${doc.source.label} document, ${doc.url}, mirrored as ${DOC_FILE}. The diff is what changed in ${doc.source.label} since Gantry last fetched it (all of it on the first fetch).`,
+    diff: splitDiff(await git(dir, "diff", "-M", "--no-color", "--no-ext-diff", base, head)),
+  };
+}
+
 async function prepare(id: string): Promise<PreparedTarget> {
   const [owner, repo, kind, ...rest] = id.split("/");
   if (!owner || !repo || !kind || !rest.length) throw new Error(`Bad target id: ${id}`);
+  if (owner.startsWith("~")) {
+    if (owner === "~doc" && kind === "doc") return prepareDoc(id, rest[0]);
+    if (kind !== "local") throw new Error(`Bad target id: ${id}`);
+    return prepareLocal(id, owner.slice(1), repo, rest.join("/"));
+  }
   const repoDir = await ensureRepo(owner, repo);
   const nwo = `${owner}/${repo}`;
 

@@ -35,8 +35,15 @@ export interface TicketRunView {
 }
 
 export interface TicketView {
-  execution?: {state:string;message:string;updatedAt:number};
-  conversation?: { provider: "codex" | "claude"; providerName: string; sessionId: string } | null;
+  execution?: {
+    activeNodeId?: string;
+    state: string;
+    message: string;
+    updatedAt: number;
+    decision?: { nodeId: string; question: string; options: { id: string; label: string; edgeId?: string }[] };
+    deliverables?: { repo: string; url: string; title: string }[];
+  };
+  conversation?: { provider: "claude" | "codex" | "opencode"; providerName: string; sessionId: string } | null;
   reviewSpaceId?: string;
   workflow?: WorkflowRun | null;
   id: string;
@@ -49,6 +56,10 @@ export interface TicketView {
   scopeDescription?: string;
   branch: string;
   additions: string | null;
+  /** Final notes: the ticket's result, which may be a link rather than code. */
+  outcome?: string | null;
+  /** Set by the person: the ticket's work is out for review. */
+  awaitingReview?: boolean;
   position: number;
   createdAt: string;
   updatedAt: string;
@@ -98,7 +109,7 @@ export interface PullGroupView {
   id: string;
   projectId: string;
   branch: string;
-  pulls: Record<string, { number: number; title: string; url: string; branch: string; head: string; draft?: boolean; ready: boolean; blockers: string[] }>;
+  pulls: Record<string, { number: number; title: string; url: string; branch: string; head: string; draft?: boolean; ready: boolean; blockers: string[]; reviewStatus?: 'waiting' | 'changes_requested' | 'commented' | 'approved' }>;
   previewId: string | null;
   previewUrl: string | null;
   ready: boolean;
@@ -116,7 +127,7 @@ export interface ProjectView {
   scopes: { id: string; label: string; description: string }[];
   environments: { id: string; label: string; default: boolean }[];
   agents: AgentView[];
-  repositories: { id: string; path: string; absolutePath: string; worktree: boolean; required: boolean; role: string }[];
+  repositories: { id: string; path: string; absolutePath: string; worktree: boolean; required: boolean; role: string; defaultBranch?: string }[];
   services: { id: string; repository: string; openUrl: string | null }[];
   promptTemplates: { id: string; label: string }[];
   instructionFiles: string[];
@@ -174,6 +185,10 @@ export const gantry = {
     request(`/api/projects/${projectId}/tickets`, 'POST', input),
   updateTicket: (ticketId: string, input: { title?: string; description?: string; status?: string; scope?: string; scopes?: string[]; branch?: string; additions?: string | null }): Promise<TicketView> =>
     request(`/api/tickets/${ticketId}/update`, 'POST', input),
+  setTicketOutcome: (ticketId: string, outcome: string): Promise<TicketView> =>
+    request(`/api/tickets/${ticketId}/outcome`, 'POST', { outcome }),
+  setTicketAwaitingReview: (ticketId: string, awaitingReview: boolean): Promise<TicketView> =>
+    request(`/api/tickets/${ticketId}/awaiting-review`, 'POST', { awaitingReview }),
   deleteTicket: (ticketId: string): Promise<{ ok: boolean }> => request(`/api/tickets/${ticketId}/delete`, 'POST', {}),
   reorderTickets: (projectId: string, status: string, ticketIds: string[]): Promise<unknown> =>
     request(`/api/projects/${projectId}/tickets/reorder`, 'POST', { status, ticketIds }),

@@ -75,6 +75,8 @@ describe('automatic stage handovers', () => {
     expect(() => resetFrom(r, 'missing')).toThrow();
   });
   test('requires an explicit valid result instead of treating any agent answer as success', () => {
+    expect(parseOutcome('GANTRY_RESULT {"outcome":"done","summary":"Drafted","finalNotes":" https://docs.example.com/d/x "}').finalNotes).toBe('https://docs.example.com/d/x');
+    expect(parseOutcome('GANTRY_RESULT {"outcome":"done","summary":"Drafted","finalNotes":"  "}').finalNotes).toBeUndefined();
     expect(() => parseOutcome('All done!')).toThrow();
     expect(() => parseOutcome('GANTRY_RESULT {"outcome":"done","summary":""}')).toThrow();
     expect(() => parseOutcome('GANTRY_RESULT {"outcome":"merged","summary":"x"}')).toThrow();

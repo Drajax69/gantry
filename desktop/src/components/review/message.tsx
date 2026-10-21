@@ -1,5 +1,6 @@
 "use client";
 
+import { createContext, useContext, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Loader2Icon, WrenchIcon } from "lucide-react";
@@ -8,39 +9,59 @@ import { Diagram } from "./diagram";
 
 const LOCATION = /^([\w@./-]+\.[\w]+):(\d+)(?:-(\d+))?$/;
 
+// Renderers live at module level so their identity is stable: a new function per
+// render makes React remount every diagram on each poll, which redraws it (jitter).
+const MarkdownContext = createContext<{ live: boolean; onOpenLocation: (file: string, line: number) => void }>({
+  live: false,
+  onOpenLocation: () => {},
+});
+
+const md: Components = {
+  pre({ children, ...rest }) {
+    // ```mermaid blocks become diagrams.
+    const child = Array.isArray(children) ? children[0] : children;
+    const props = (child as { props?: { className?: string; children?: unknown } })?.props;
+    if (props?.className?.includes("language-mermaid")) return <MarkdownDiagram code={String(props.children).trim()} />;
+    return <pre {...rest}>{children}</pre>;
+  },
+  code({ className, children, ...rest }) {
+    return <MarkdownCode className={className} rest={rest}>{children}</MarkdownCode>;
+  },
+  a({ href, children }) {
+    return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+  },
+};
+
+function MarkdownDiagram({ code }: { code: string }) {
+  const { live } = useContext(MarkdownContext);
+  return <Diagram code={code} live={live} />;
+}
+
+function MarkdownCode({ className, children, rest }: { className?: string; children: ReactNode; rest: object }) {
+  const { onOpenLocation } = useContext(MarkdownContext);
+  const raw = String(children);
+  const m = !className && raw.match(LOCATION);
+  if (m) {
+    return (
+      <button
+        className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] text-sky-700 hover:underline dark:text-sky-300"
+        onClick={() => onOpenLocation(m[1], Number(m[2]))}
+      >
+        {raw}
+      </button>
+    );
+  }
+  return <code className={className} {...rest}>{children}</code>;
+}
+
 /** Markdown where `path:line` code spans jump to the code. */
 export function Markdown({ text, live = false, onOpenLocation }: { text: string; live?: boolean; onOpenLocation: (file: string, line: number) => void }) {
-  const md: Components = {
-    pre({ children, ...rest }) {
-      // ```mermaid blocks become diagrams.
-      const child = Array.isArray(children) ? children[0] : children;
-      const props = (child as { props?: { className?: string; children?: unknown } })?.props;
-      if (props?.className?.includes("language-mermaid")) return <Diagram code={String(props.children).trim()} live={live} />;
-      return <pre {...rest}>{children}</pre>;
-    },
-    code({ className, children, ...rest }) {
-      const raw = String(children);
-      const m = !className && raw.match(LOCATION);
-      if (m) {
-        return (
-          <button
-            className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] text-sky-700 hover:underline dark:text-sky-300"
-            onClick={() => onOpenLocation(m[1], Number(m[2]))}
-          >
-            {raw}
-          </button>
-        );
-      }
-      return <code className={className} {...rest}>{children}</code>;
-    },
-    a({ href, children }) {
-      return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
-    },
-  };
   return (
-    <div className="chat-md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={md}>{text}</ReactMarkdown>
-    </div>
+    <MarkdownContext.Provider value={{ live, onOpenLocation }}>
+      <div className="chat-md">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={md}>{text}</ReactMarkdown>
+      </div>
+    </MarkdownContext.Provider>
   );
 }
 

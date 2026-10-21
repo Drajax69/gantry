@@ -86,7 +86,7 @@ function NodeEditor({
   }, [draft.providerId]);
   const efforts =
     models.find((m) => m.id === (draft.model || provider?.model))?.efforts ??
-    (provider?.kind === 'claude' ? ['low', 'medium', 'high'] : ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+    ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
   return (
     <EditorDialog title="Edit node" onClose={onClose}>
       <form

@@ -4,6 +4,9 @@ import { useEffect, useId, useState } from "react";
 import { useTheme } from "next-themes";
 import { Loader2Icon } from "lucide-react";
 
+// Drawn diagrams by theme and source, so a remounted diagram shows at once instead of redrawing.
+const drawn = new Map<string, string>();
+
 /** Renders a ```mermaid block from an answer. Mermaid loads on first use; it's big. */
 export function Diagram({ code, live }: { code: string; live: boolean }) {
   const { resolvedTheme } = useTheme();
@@ -13,7 +16,7 @@ export function Diagram({ code, live }: { code: string; live: boolean }) {
 
   useEffect(() => {
     // Half-written diagrams don't parse; wait for the answer to finish.
-    if (live) return;
+    if (live || drawn.has(key)) return;
     let cancelled = false;
     import("mermaid")
       .then(async ({ default: mermaid }) => {
@@ -24,6 +27,7 @@ export function Diagram({ code, live }: { code: string; live: boolean }) {
           fontFamily: "var(--font-sans)",
         });
         const { svg } = await mermaid.render(id, code);
+        drawn.set(key, svg);
         if (!cancelled) setSvg({ for: key, svg });
       })
       .catch((e: Error) => {
@@ -35,7 +39,8 @@ export function Diagram({ code, live }: { code: string; live: boolean }) {
     };
   }, [code, id, key, live, resolvedTheme]);
 
-  const ready = svg?.for === key ? svg : null;
+  const cached = drawn.get(key);
+  const ready = cached ? { for: key, svg: cached } : svg?.for === key ? svg : null;
   if (ready?.svg) {
     return (
       <div

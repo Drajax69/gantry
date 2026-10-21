@@ -35,6 +35,9 @@ export default defineConfig({
     env: {
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
       PR_LENS_HOME: home,
+      // Chats open in the e2e herdr stand-in, never the real herdr or Ghostty on this machine.
+      PR_LENS_HERDR: path.join(bin, "herdr"),
+      PR_LENS_GHOSTTY: path.join(home, "no-ghostty"),
       CLAUDE_CONFIG_DIR: path.resolve(__dirname, "e2e/.tmp/claude-config"),
       PR_LENS_GANTRY_URL: "http://127.0.0.1:3458",
       PORT: String(PORT),

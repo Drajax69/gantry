@@ -5,7 +5,7 @@ import path from 'node:path';
 test('Gantry ticket, preview and review workflow stays inside Gantry', async ({ page }) => {
   const initialSpaces = await (await page.request.get('/api/spaces')).json();
   await page.goto('/');
-  await expect(page.getByLabel('Workspace', { exact:true })).toHaveValue('fixture');
+  await expect(page.getByRole('navigation',{name:'Workspaces'}).getByRole('button',{name:'Fixture workspace'})).toBeVisible();
   await page.getByRole('button', {name:'New ticket',exact:true}).click();
   await page.getByLabel('Title', {exact:true}).fill('Draft ticket');
   await page.getByLabel('Notes', {exact:true}).fill('Keep the review in this app.');
@@ -35,7 +35,7 @@ test('Gantry ticket, preview and review workflow stays inside Gantry', async ({ 
   await expect(page.getByRole('tab',{name:'fixture #1',exact:true})).toBeVisible();
   await page.evaluate(() => document.documentElement.classList.add('electron'));
   const switcher = page.getByRole('button', { name: 'Switch space', exact: true });
-  const reviewHeader = page.getByRole('banner').filter({ has: switcher });
+  const reviewHeader = page.locator('header').filter({ has: switcher });
   await expect(reviewHeader).toHaveCSS('padding-left', '12px');
   await expect(switcher).toHaveCSS('width', '288px');
   await switcher.click();
@@ -82,7 +82,7 @@ test('Gantry follows the review app themes and desktop window sizes', async ({ p
   await page.waitForTimeout(250); // Let shared control and theme transitions settle for visual review.
   await page.screenshot({path:'e2e/.tmp/incumbent-home.png'});
   await page.goto('/');
-  await expect(page.getByLabel('Workspace', {exact:true})).toHaveValue('fixture');
+  await expect(page.getByRole('navigation',{name:'Workspaces'}).getByRole('button',{name:'Fixture workspace'})).toBeVisible();
   await page.getByRole('button',{name:'New ticket',exact:true}).click();
   await page.getByLabel('Title', {exact:true}).fill('Keep branch previews stable across restarts');
   await page.getByLabel('Notes', {exact:true}).fill('Reuse managed services when their configuration is unchanged. Verify that the agent can prepare the branch, open a preview, and hand it over for review.');
@@ -162,10 +162,10 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
     expect(reopened.tickets[0].reviewSpaceId).toBe(one.id);
     await page.goto(`/space/${one.id}`);
     await page.getByRole('button',{name:'Back',exact:true}).click();
-    await expect(page.getByLabel('Workspace',{exact:true})).toHaveValue('fixture');
+    await expect(page.getByRole('navigation',{name:'Workspaces'}).locator('[aria-current="true"]')).toContainText('Fixture workspace');
     await expect(page.getByRole('region',{name:'Ticket details'})).toBeVisible();
     await page.getByRole('button',{name:'Close details',exact:true}).click();
-    await page.getByLabel('Workspace',{exact:true}).selectOption('other');
+    await page.getByRole('navigation',{name:'Workspaces'}).getByRole('button',{name:'Other workspace'}).click();
     await page.getByRole('button',{name:'Open review space for Shared title',exact:true}).click();
     await expect(page).toHaveURL(new RegExp(`review=${two.id}`));
     await expect(page.getByRole('tab')).toHaveCount(0);
@@ -194,32 +194,32 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   await page.reload();
   const launches = path.resolve('e2e/.tmp/home/external-launches.jsonl');
   await page.getByRole('button',{name:'Workspace graph',exact:true}).click();
-  await page.getByRole('button',{name:'Shared starting instructions',exact:true}).click();
+  await page.getByRole('button',{name:'Shared instructions',exact:true}).click();
   await page.getByLabel('Starting prompt',{exact:true}).fill('Workspace delivery rule: implement ${ticket.title}, validate, then create a PR.');
   await page.getByRole('button',{name:'Save prompt',exact:true}).click();
-  await page.getByRole('button',{name:'Cancel',exact:true}).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.reload();
   await page.getByRole('button',{name:'Workspace graph',exact:true}).click();
-  await page.getByRole('button',{name:'Shared starting instructions',exact:true}).click();
+  await page.getByRole('button',{name:'Shared instructions',exact:true}).click();
   await expect(page.getByLabel('Starting prompt',{exact:true})).toHaveValue('Workspace delivery rule: implement ${ticket.title}, validate, then create a PR.');
   await page.screenshot({path:'e2e/.tmp/workspace-prompt.png'});
   await page.getByRole('dialog').last().getByRole('button',{name:'Cancel',exact:true}).click();
-  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.getByRole('navigation',{name:'Gantry workspace'}).getByRole('button',{name:/^Tickets/}).click();
   await expect(page.getByRole('button',{name:'Open chat for Test the unified workspace'})).toHaveCount(0);
   await card.dragTo(page.getByRole('region',{name:'In progress',exact:true}));
-  await expect(page.getByText('Opened this ticket in Codex',{exact:true})).toBeVisible();
+  // Moving a ticket only changes its status; the chat opens from the card.
+  await page.getByRole('button',{name:'Open chat for Test the unified workspace'}).click();
+  await expect(page.getByText("Opened this ticket's Codex chat in herdr",{exact:true})).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   const initial = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'load'}})).json();
   expect(initial.conversation.provider).toBe('codex');
   const id = initial.conversation.sessionId;
   expect(id).toMatch(/^[a-f0-9-]{36}$/);
-  const codexLaunches = () => fs.readFileSync(launches,'utf8').trim().split('\n').map(l=>JSON.parse(l)).filter(c=>c.command==='open').map(c=>new URL(c.args[0]));
-  const queued = () => fs.readFileSync(path.resolve('e2e/.tmp/home/codex-queued.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
-  expect(queued()).toHaveLength(1);
-  expect(queued()[0].args).toContain(id);
-  expect(queued()[0].args.at(-1)).toContain('Workspace delivery rule: implement Test the unified workspace, validate, then create a PR.');
-  expect(queued()[0].args.at(-1)).toContain('Updated ticket details persist after reload.');
+  // Every chat opens in herdr: the pane runs `codex resume` with the opening message; the context is already in the thread.
+  const herdrRuns = () => fs.readFileSync(launches,'utf8').trim().split('\n').map(l=>JSON.parse(l)).filter(c=>c.command==='herdr' && c.args[0]==='pane' && c.args[1]==='run');
+  expect(herdrRuns()).toHaveLength(1);
+  expect(herdrRuns()[0].script).toContain(`'resume' '${id}'`);
+  expect(herdrRuns()[0].script).toContain('Start the work described above.');
   const protocol = fs.readFileSync(path.resolve('e2e/.tmp/home/codex-protocol.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
   expect(protocol.filter(c=>c.method==='thread/start')).toHaveLength(1);
   expect(protocol.some(c=>c.method==='turn/start')).toBe(false);
@@ -230,9 +230,8 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   await request.patch('/api/agents',{data:{id:'claude',current:true}});
   const responses = await Promise.all([1,2].map(()=>request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})));
   for (const response of responses) expect((await response.json()).conversation.sessionId).toBe(id);
-  expect(fs.readFileSync(launches,'utf8')).toContain(id);
-  expect(codexLaunches().at(-1)!.searchParams.has('prompt')).toBe(false);
-  expect(queued()).toHaveLength(1);
+  expect(herdrRuns().at(-1)!.script).toContain(id);
+  expect(herdrRuns().at(-1)!.script).not.toContain('Start the work described above.');
   await page.reload();
   await page.getByRole('button',{name:'Edit ticket Test the unified workspace'}).click();
   await page.getByRole('button',{name:'Cancel',exact:true}).click();
@@ -246,17 +245,19 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   expect((await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'send',text:'Do not run'}})).status()).toBe(400);
   fs.unlinkSync(path.resolve('e2e/.tmp/home', id+'.jsonl'));
   fs.writeFileSync(path.resolve('e2e/.tmp/home/fail-external-launch'),'fixture');
+  const runsBefore = herdrRuns().length;
   expect((await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).ok()).toBe(false);
-  expect(queued()).toHaveLength(2);
+  expect(herdrRuns()).toHaveLength(runsBefore);
   fs.unlinkSync(path.resolve('e2e/.tmp/home/fail-external-launch'));
   const recovered = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
   expect(recovered.conversation.sessionId).not.toBe(id);
-  expect(queued()).toHaveLength(2);
-  expect(queued().at(-1).args.at(-1)).toContain('Workspace delivery rule:');
+  // The failed launch never reached the chat, so the recovered thread still gets its opening message.
+  expect(herdrRuns().at(-1)!.script).toContain(`'resume' '${recovered.conversation.sessionId}'`);
+  expect(herdrRuns().at(-1)!.script).toContain('Start the work described above.');
   expect(fs.existsSync(path.resolve('e2e/.tmp/home', recovered.conversation.sessionId+'.jsonl'))).toBe(true);
   const again = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
   expect(again.conversation.sessionId).toBe(recovered.conversation.sessionId);
-  expect(queued()).toHaveLength(2);
+  expect(herdrRuns().at(-1)!.script).not.toContain('Start the work described above.');
   await request.patch('/api/agents',{data:{id:agents.current,current:true}});
 });
 
@@ -277,11 +278,38 @@ test('Claude conversation uses one session ID and resumes it; launch failures re
   fs.writeFileSync(path.join(sessionDir,failed.sessionId+'.jsonl'),'{}');
   const reopened = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
   expect(reopened.conversation.sessionId).toBe(failed.sessionId);
-  const calls=fs.readFileSync(path.join(home,'external-launches.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
-  expect(JSON.stringify(calls.at(-1))).toContain('--resume');
-  expect(JSON.stringify(calls.at(-1))).toContain('Changed for future conversations');
-  expect(JSON.stringify(calls.at(-1))).toContain(failed.sessionId);
-  expect(JSON.stringify(calls.at(-1))).toContain('custom title');
+  const runs=fs.readFileSync(path.join(home,'external-launches.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l)).filter(c=>c.command==='herdr' && c.args[1]==='run');
+  expect(runs.at(-1).script).toContain('--resume');
+  expect(runs.at(-1).script).toContain('Changed for future conversations');
+  expect(runs.at(-1).script).toContain(failed.sessionId);
+});
+
+test('OpenCode conversation is created with the ticket context and opens in herdr', async ({request}) => {
+  const home = path.resolve('e2e/.tmp/home');
+  const recordFile = path.join(home,'ticket-conversations/ticket-1.json');
+  fs.unlinkSync(recordFile); // Reset only this disposable fixture's association.
+  const previous = await (await request.get('/api/agents')).json();
+  const provider = await (await request.post('/api/agents',{data:{kind:'opencode',name:'OpenCode'}})).json();
+  const opened = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
+  expect(opened.conversation.provider).toBe('opencode');
+  const id = opened.conversation.sessionId;
+  expect(id).toMatch(/^ses_\w+$/);
+  // The session was made without a model turn: the context went in with noReply, behind the server's password.
+  const protocol = fs.readFileSync(path.join(home,'opencode-protocol.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l));
+  const context = protocol.find(c=>c.path===`/session/${id}/message`);
+  expect(protocol.every(c=>c.authorized)).toBe(true);
+  expect(context.body.noReply).toBe(true);
+  expect(context.body.parts[0].text).toContain('Changed for future conversations');
+  const calls = () => fs.readFileSync(path.join(home,'external-launches.jsonl'),'utf8').trim().split('\n').map(l=>JSON.parse(l)).filter(c=>c.command==='herdr');
+  expect(calls().filter(c=>c.args[1]==='run').at(-1).script).toContain(`'opencode' '-s' '${id}'`);
+  // OpenCode takes no opening message on resume, so herdr types it into the chat.
+  expect(calls().some(c=>c.args[1]==='send-text' && c.args.at(-1)==='Start the work described above.')).toBe(true);
+  const sent = calls().filter(c=>c.args[1]==='send-text').length;
+  const again = await (await request.post('/api/ticket-chat',{data:{ticketId:'ticket-1',action:'open'}})).json();
+  expect(again.conversation.sessionId).toBe(id);
+  expect(calls().filter(c=>c.args[1]==='send-text')).toHaveLength(sent);
+  await request.patch('/api/agents',{data:{id:previous.current,current:true}});
+  await request.delete(`/api/agents?id=${provider.id}`);
 });
 
 test('API-only providers fail clearly without launching or creating an embedded chat', async ({request}) => {
@@ -449,7 +477,7 @@ test('preview developer tools capture console, errors, fetch and XHR without rel
     await page.getByRole('navigation',{name:'Previews',exact:true}).getByRole('button',{name:'Main',exact:true}).click();
     const frame=page.frameLocator('iframe[title="Main preview"]');
     await frame.getByLabel('Draft').fill('keep this draft');
-    await expect(page.getByRole('button',{name:'Reload',exact:true})).toHaveCount(0);
+    await expect(page.getByRole('button',{name:'Reload',exact:true})).toBeVisible();
     await expect(page.getByRole('button',{name:'Refresh Gantry'})).toHaveCount(0);
     await expect(page.getByRole('heading',{name:'Main',exact:true})).toHaveCount(0);
     await page.getByRole('button',{name:'Debug',exact:true}).click();

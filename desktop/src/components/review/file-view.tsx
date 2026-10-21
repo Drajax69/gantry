@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import type { Thread } from "@/lib/client/threads";
 import type { Anchor, FileResponse, Quote, ReviewThread, TargetInfo, Tok } from "@/lib/types";
 import { FileEditor } from "./file-editor";
+import { Markdown } from "./message";
 import { CodeLine } from "./code";
 import { ComposerBox, GitHubThread, InlineComposer, InlineThread, QuoteBlock } from "./thread";
 
@@ -71,6 +72,9 @@ const lineKey = (side: "new" | "old", n: number) => `${side}-${n}`;
 export function FileView(props: Props) {
   const { target, path, data, loading, error, mode, onMode, draft, draftQuote, onDraft, threads, ghThreads, collapsed, onToggleThread, agentName, onAsk, onReply, onStop, onDelete, onOpenLocation, focus } = props;
   const [editing, setEditing] = useState<string | null>(null);
+  // Markdown (a plan, notes) can be read rendered; it shows the full file, so it rides on full mode.
+  const [rendered, setRendered] = useState(false);
+  const markdown = !!path && /\.(md|markdown)$/i.test(path);
   const scroller = useRef<HTMLDivElement>(null);
   const [viewWidth, setViewWidth] = useState(0);
   // Where a drag across line numbers started.
@@ -194,7 +198,8 @@ export function FileView(props: Props) {
   }
 
   const file = data?.file ?? null;
-  const blobUrl = `https://github.com/${target.owner}/${target.repo}/blob/${target.headSha}/${path}`;
+  const blobUrl = target.url && target.kind !== "doc" ? `https://github.com/${target.owner}/${target.repo}/blob/${target.headSha}/${path}` : null;
+  const showRendered = rendered && markdown && mode === "full";
 
   return (
     <div className="flex h-full flex-col">
@@ -210,15 +215,23 @@ export function FileView(props: Props) {
             {(["diff", "full"] as const).map((m) => (
               <button
                 key={m}
-                onClick={() => onMode(m)}
-                className={cn("rounded px-2 py-0.5 text-muted-foreground", mode === m && "bg-background text-foreground shadow-sm")}
+                onClick={() => { setRendered(false); onMode(m); }}
+                className={cn("rounded px-2 py-0.5 text-muted-foreground", mode === m && !showRendered && "bg-background text-foreground shadow-sm")}
               >
                 {m === "diff" ? "Diff" : "Full file"}
               </button>
             ))}
+            {markdown && (
+              <button
+                onClick={() => { setRendered(true); onMode("full"); }}
+                className={cn("rounded px-2 py-0.5 text-muted-foreground", showRendered && "bg-background text-foreground shadow-sm")}
+              >
+                Rendered
+              </button>
+            )}
           </div>
         )}
-        {!props.local && <Button variant="ghost" size="icon-xs" nativeButton={false} render={<a href={blobUrl} target="_blank" rel="noreferrer" />} aria-label="Open on GitHub">
+        {!props.local && blobUrl && <Button variant="ghost" size="icon-xs" nativeButton={false} render={<a href={blobUrl} target="_blank" rel="noreferrer" />} aria-label="Open on GitHub">
           <ExternalLinkIcon />
         </Button>}
       </div>
@@ -247,7 +260,12 @@ export function FileView(props: Props) {
             </Empty>
           )}
           {error && <Empty className="text-destructive">{error}</Empty>}
-          {data && !error && (
+          {data && !error && showRendered && data.lines && (
+            <div className="mx-auto max-w-3xl px-6 py-5 text-sm leading-relaxed">
+              <Markdown text={data.lines.map((line) => line.map((tok) => tok[0]).join("")).join("\n")} onOpenLocation={onOpenLocation} />
+            </div>
+          )}
+          {data && !error && !(showRendered && data.lines) && (
             <Body
               data={data}
               rows={rows}

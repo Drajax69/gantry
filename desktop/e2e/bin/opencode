@@ -1,0 +1,28 @@
+#!/usr/bin/env node
+// Offline OpenCode: `serve` answers the two calls Gantry makes to create a conversation,
+// and logs them to opencode-protocol.jsonl. Everything else just logs and exits.
+const fs = require('node:fs');
+const http = require('node:http');
+const path = require('node:path');
+const home = process.env.PR_LENS_HOME;
+const args = process.argv.slice(2);
+const log = (entry) => fs.appendFileSync(path.join(home, 'opencode-protocol.jsonl'), JSON.stringify(entry) + '\n');
+if (args[0] === '--version') { process.stdout.write('1.0.0-e2e\n'); process.exit(0); }
+if (args[0] !== 'serve') { log({ args }); process.exit(0); }
+
+const expected = `Basic ${Buffer.from(`opencode:${process.env.OPENCODE_SERVER_PASSWORD}`).toString('base64')}`;
+let n = 0;
+const server = http.createServer(async (req, res) => {
+  let raw = '';
+  for await (const chunk of req) raw += chunk;
+  const url = new URL(req.url, 'http://127.0.0.1');
+  const body = raw ? JSON.parse(raw) : {};
+  log({ method: req.method, path: url.pathname, directory: url.searchParams.get('directory'), authorized: req.headers.authorization === expected, body });
+  res.setHeader('Content-Type', 'application/json');
+  if (req.headers.authorization !== expected) { res.statusCode = 401; return res.end('{}'); }
+  if (req.method === 'POST' && url.pathname === '/session') return res.end(JSON.stringify({ id: `ses_e2e${++n}`, title: body.title }));
+  if (req.method === 'POST' && /^\/session\/ses_\w+\/message$/.test(url.pathname)) return res.end(JSON.stringify({ info: { role: 'user' } }));
+  res.statusCode = 404;
+  res.end('{}');
+});
+server.listen(0, '127.0.0.1', () => process.stdout.write(`opencode server listening on http://127.0.0.1:${server.address().port}\n`));

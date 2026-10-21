@@ -26,6 +26,8 @@ test('ticket graph shares actions and refreshes progress without losing navigati
       });
     }
     if (url.pathname === '/api/agents') return json({ agents: [], current: null });
+    if (url.pathname === '/api/stage-permissions') return json({ allow: [] });
+    if (url.pathname === '/api/workflow-execution') return json(null);
     if (url.pathname === '/api/ticket-chat') {
       if (req.postDataJSON().action === 'open') opens.push(req.postDataJSON().ticketId);
       return json({ conversation: tickets[0].conversation });
@@ -35,6 +37,8 @@ test('ticket graph shares actions and refreshes progress without losing navigati
       tickets.push(ticket);
       return json(ticket);
     }
+    // The setup banner checks for herdr and a coding CLI; these fixtures have both.
+    if (url.pathname === '/api/setup') return json({ ok: true, herdr: { ok: true, detail: '' }, agent: { ok: true, detail: '' } });
     unexpected.push(req.method() + ' ' + url.pathname);
     return route.fulfill({ status: 400, json: { error: 'Unexpected request blocked' } });
   });
@@ -50,7 +54,7 @@ test('ticket graph shares actions and refreshes progress without losing navigati
   tickets[0].workflow.states.build.state = 'waiting';
   await expect(graph.getByText(label + '_updated', { exact: true })).toBeVisible({ timeout: 6000 });
   expect(reads).toBeGreaterThan(before);
-  await expect(graph.locator('[data-ticket-id="active"]').getByText('Waiting on you · Build', { exact: true })).toBeVisible();
+  await expect(graph.locator('[data-ticket-id="active"]').getByRole('status', { name: 'Waiting on you: Build', exact: true })).toBeVisible();
   await expect(graph.locator('[data-ticket-id="active"]').getByText('Chat linked · ' + label + '_provider', { exact: true })).toBeVisible();
   await graph.getByRole('textbox', { name: 'Search ticket graph' }).fill('_queued');
   await expect(graph.locator('[data-ticket-id="active"]')).toHaveCount(0);

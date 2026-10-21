@@ -192,6 +192,16 @@ export async function createHttpServer(app: GantryApp) {
     return updated;
   });
 
+  fastify.post('/api/tickets/:ticketId/outcome', async (request) => {
+    const { ticketId } = request.params as { ticketId: string };
+    return app.tickets.setOutcome(ticketId, (request.body as { outcome?: unknown } | undefined)?.outcome ?? null);
+  });
+
+  fastify.post('/api/tickets/:ticketId/awaiting-review', async (request) => {
+    const { ticketId } = request.params as { ticketId: string };
+    return app.tickets.setAwaitingReview(ticketId, (request.body as { awaitingReview?: unknown } | undefined)?.awaitingReview);
+  });
+
   fastify.post('/api/tickets/:ticketId/delete', async (request) => {
     const { ticketId } = request.params as { ticketId: string };
     app.tickets.remove(ticketId);

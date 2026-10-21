@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BackToTickets } from "@/components/gantry/link";
 import { CheckIcon, Loader2Icon, PencilIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
@@ -11,19 +11,21 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AgentIcon } from "@/components/agents/agent-icon";
-import { api } from "@/lib/client/api";
+import { api, type TerminalLauncher } from "@/lib/client/api";
 import { agentsStore, chooseAgent, useAgents } from "@/lib/client/agents";
 import type { Agent, AgentKind, AgentStatus } from "@/lib/types";
 
 const KINDS: { kind: AgentKind; label: string; blurb: string }[] = [
   { kind: "claude", label: "Claude", blurb: "Claude Code CLI, signed in on this computer" },
   { kind: "codex", label: "Codex", blurb: "OpenAI Codex CLI, signed in on this computer" },
+  { kind: "opencode", label: "OpenCode", blurb: "OpenCode CLI, with a provider set up (opencode auth login)" },
   { kind: "openai", label: "Own provider", blurb: "Any OpenAI-compatible API: OpenAI, OpenRouter, Ollama, LM Studio…" },
 ];
 
 const MODEL_HINT: Record<AgentKind, string> = {
   claude: "Default, or e.g. opus, sonnet",
   codex: "Default, or e.g. gpt-5-codex",
+  opencode: "Default, or provider/model, e.g. anthropic/claude-sonnet-4-5",
   openai: "e.g. gpt-5, anthropic/claude-sonnet-4.5, llama3.1",
 };
 
@@ -136,8 +138,63 @@ export function Settings() {
           Own providers get file reading and editing, search, and git inspection tools confined to the checkout. See edits in Local changes, then use Commit and push to publish them to the PR.
           API keys are stored in ~/.pr-lens/agents.json, readable only by you.
         </p>
+
+        <ChatLauncher />
       </main>
     </div>
+  );
+}
+
+const TERMINAL_APPS: { app: TerminalLauncher["terminalApp"]; label: string }[] = [
+  { app: "ghostty", label: "Ghostty" },
+  { app: "terminal", label: "Terminal" },
+];
+
+/** Where ticket, master and stage chats open. */
+function ChatLauncher() {
+  const [settings, setSettings] = useState<TerminalLauncher | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { api.terminalLauncher().then(setSettings, (e: Error) => toast.error(e.message)); }, []);
+  if (!settings) return <Skeleton className="h-20" />;
+
+  async function save() {
+    setSaving(true);
+    try {
+      setSettings(await api.saveTerminalLauncher(settings!));
+      toast.success("herdr settings saved");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-3 border-t pt-6">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-lg font-semibold tracking-tight">Chats open in herdr</h2>
+        <p className="text-sm text-muted-foreground">
+          Every chat opens in herdr: one space per workspace, one tab per ticket, and stage chats as panes beside the ticket chat.
+          The tab closes once the ticket is Done and no agent in it is working. The terminal app shows herdr&apos;s window when none is open.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Show herdr in</span>
+        {TERMINAL_APPS.map((t) => (
+          <Button key={t.app} size="sm" variant={settings.terminalApp === t.app ? "secondary" : "ghost"} onClick={() => setSettings({ ...settings, terminalApp: t.app })}>
+            {t.label}
+          </Button>
+        ))}
+      </div>
+      <Field label="herdr binary">
+        <Input value={settings.herdrPath} onChange={(e) => setSettings({ ...settings, herdrPath: e.target.value })} />
+      </Field>
+      <div>
+        <Button size="sm" onClick={() => void save()} disabled={saving}>
+          {saving && <Loader2Icon className="animate-spin" />} Save
+        </Button>
+      </div>
+    </section>
   );
 }
 

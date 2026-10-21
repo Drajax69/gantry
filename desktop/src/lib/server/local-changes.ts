@@ -10,6 +10,7 @@ import { splitDiff } from "./diff";
 import { withoutPatch } from "./files";
 import { httpError } from "./http";
 import { pendingFor, queuedFor } from "./chats";
+import { publishDoc } from "./docs";
 const exec = promisify(execFile);
 
 // Build a stable view without changing the user's staging area or working files.
@@ -36,7 +37,9 @@ export async function localChanges(id: string) {
 }
 export async function publishChanges(id: string, tree: string, expectedHead: string, message: string) {
   const t = await getTarget(id);
-  if (t.info.kind !== "pull") throw httpError(400, "Publishing is available for pull requests.");
+  // A document goes back to its service through its source's publish command.
+  if (t.info.kind === "doc") return publishDoc(id.split("/")[3], tree, expectedHead);
+  if (t.info.kind !== "pull") throw httpError(400, "Publishing is available for pull requests and documents.");
   return withLock(t.repoDir, async () => {
     if (pendingFor(id) || queuedFor(id).length) throw httpError(409, "Wait for the agent to finish before publishing.");
     const meta = JSON.parse(await gh("pr", "view", id.split("/").at(-1)!, "-R", `${t.info.owner}/${t.info.repo}`, "--json", "state,headRefName,headRepository,headRepositoryOwner"));

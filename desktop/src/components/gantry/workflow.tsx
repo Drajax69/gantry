@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useId, useRef, useState } from 'react';
-import { GitBranchIcon, MinusIcon, PlusIcon, MaximizeIcon } from 'lucide-react';
+import { CircleAlertIcon, CircleCheckIcon, CircleDotIcon, GitBranchIcon, Loader2Icon, MinusIcon, PlusIcon, MaximizeIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { gantry, type Workflow, type WorkflowRun, type TicketView } from '@/lib/client/gantry';
@@ -9,11 +9,17 @@ import { nodePositions } from '@/lib/client/workflow-graph';
 import { WorkflowCanvas } from './workflow-canvas';
 
 const stateLabel = { pending: 'Not started', running: 'In progress', waiting: 'Waiting on you', done: 'Complete', failed: 'Failed' };
+export type GraphPhase = 'complete' | 'waiting' | 'running' | 'next' | 'empty';
+
+/** Where a ticket's graph is: its phase, the stages that phase is about, and how many stages are done. */
 export function graphSummary(run?: WorkflowRun | null, execution?: TicketView['execution']) {
   if (!run) return null;
-  if (execution?.state === 'complete') return { waiting: false, text: 'Graph complete' };
-  if (execution && ['waiting', 'paused'].includes(execution.state)) return { waiting: true, text: execution.message || 'Waiting on you' };
-  if (!run.graph.nodes.length) return { waiting: false, text: 'No nodes yet' };
+  const total = run.graph.nodes.length;
+  const done = run.graph.nodes.filter((n) => run.states[n.id]?.state === 'done').length;
+  const result = (phase: GraphPhase, label: string, text = label) => ({ phase, label, text, waiting: phase === 'waiting', done, total });
+  if (execution?.state === 'complete') return result('complete', 'Graph complete');
+  if (execution && ['waiting', 'paused'].includes(execution.state)) return result('waiting', execution.message || 'Waiting on you');
+  if (!total) return result('empty', 'No nodes yet');
   const ready = run.graph.nodes.filter((n) => run.states[n.id]?.state === 'pending' && n.dependsOn.every((id) => run.states[id]?.state === 'done'));
   const active = run.graph.nodes.filter((n) => ['running', 'waiting', 'failed'].includes(run.states[n.id]?.state));
   const waiting = active.some((n) => ['waiting', 'failed'].includes(run.states[n.id]?.state)) || ready.some((n) => n.kind === 'human');
@@ -22,12 +28,34 @@ export function graphSummary(run?: WorkflowRun | null, execution?: TicketView['e
     : active.length
       ? active
       : ready;
-  return {
-    waiting,
-    text: run.graph.nodes.every((n) => run.states[n.id]?.state === 'done')
-      ? 'Graph complete'
-      : `${waiting ? 'Waiting on you · ' : active.length ? '' : 'Next · '}${current.map((n) => n.label).join(', ')}`,
-  };
+  if (done === total) return result('complete', 'Graph complete');
+  const label = current.map((n) => n.label).join(', ');
+  return waiting ? result('waiting', label, `Waiting on you · ${label}`) : active.length ? result('running', label) : result('next', label, `Next · ${label}`);
+}
+
+const PHASE_STYLE: Record<GraphPhase, { icon: typeof CircleCheckIcon; title: string; className: string }> = {
+  complete: { icon: CircleCheckIcon, title: 'Graph complete', className: 'border-emerald-600/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300' },
+  waiting: { icon: CircleAlertIcon, title: 'Waiting on you', className: 'border-amber-600/40 bg-amber-500/15 text-amber-900 dark:text-amber-200' },
+  running: { icon: Loader2Icon, title: 'Running', className: 'border-sky-600/30 bg-sky-500/10 text-sky-900 dark:text-sky-200' },
+  next: { icon: CircleDotIcon, title: 'Up next', className: 'border-border bg-muted/50 text-foreground' },
+  empty: { icon: CircleDotIcon, title: 'No stages', className: 'border-border bg-muted/50 text-muted-foreground' },
+};
+
+/** A ticket's graph phase as a card-sized block: what kind of state it is, which stage, and progress. */
+export function GraphStatus({ run, execution }: { run?: WorkflowRun | null; execution?: TicketView['execution'] }) {
+  const summary = graphSummary(run, execution);
+  if (!summary) return null;
+  const style = PHASE_STYLE[summary.phase];
+  const Icon = style.icon;
+  const detail = summary.phase === 'complete' ? '' : summary.label;
+  return <span role="status" aria-label={`${style.title}${detail ? `: ${detail}` : ''}`} className={`flex w-full items-start gap-2 rounded-md border px-2 py-1.5 text-xs ${style.className}`}>
+    <Icon aria-hidden="true" className={`mt-px size-3.5 shrink-0 ${summary.phase === 'running' ? 'animate-spin' : ''}`} />
+    <span className="min-w-0 flex-1">
+      <span className="block font-semibold">{style.title}</span>
+      {detail && <span className="line-clamp-2 break-words opacity-90">{detail}</span>}
+    </span>
+    {summary.total > 0 && <span className="shrink-0 tabular-nums opacity-75" title={`${summary.done} of ${summary.total} stages done`}>{summary.done}/{summary.total}</span>}
+  </span>;
 }
 
 /** Layers make forks and joins visible; arbitrary labels never become SVG markup. */
@@ -137,7 +165,16 @@ function Graph({ graph, run, selected, onSelect }: { graph: Workflow; run?: Work
 export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refresh: () => Promise<unknown> }) {
   const run = ticket.workflow;
   const [editing, setEditing] = useState(false);
-  const [selected, setSelected] = useState(run?.graph.nodes.find((n) => run.states[n.id]?.state !== 'done')?.id ?? run?.graph.nodes.at(-1)?.id ?? '');
+  const [selection, setSelected] = useState('');
+  // Follow the current stage until the person chooses a stage to inspect.
+  // Pending nodes may precede the active node after a correction loop.
+  const currentId = ticket.execution?.activeNodeId ?? ticket.execution?.decision?.nodeId;
+  const selected = (run?.graph.nodes.some(n => n.id === selection) ? selection : undefined)
+    ?? run?.graph.nodes.find(n => n.id === currentId)?.id
+    ?? run?.graph.nodes.find(n => ['running', 'waiting', 'failed'].includes(run.states[n.id]?.state))?.id
+    ?? run?.graph.nodes.find(n => run.states[n.id]?.state === 'pending' && n.dependsOn.every(id => run.states[id]?.state === 'done'))?.id
+    ?? run?.graph.nodes.at(-1)?.id
+    ?? '';
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -227,7 +264,7 @@ export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refres
           {node && (
             <div className="min-w-0 space-y-4 xl:max-h-[calc(56dvh+52px)] xl:overflow-y-auto xl:pr-2">
               <h4 className="font-medium">{node.label}</h4>
-              <ExecutionControls ticket={ticket} selected={selected} refresh={refresh} />
+              <ExecutionControls ticket={ticket} selected={selected} refresh={refresh} onSelect={(id) => { setSelected(id); setMessage(''); setError(''); }} />
               <details className="border-b pb-4"><summary className="cursor-pointer text-sm font-medium">Stage instructions</summary><p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{node.instructions || 'No additional instructions.'}</p></details>
               {state?.message && <p className="whitespace-pre-wrap text-sm">{state.message}</p>}
               {!ready && (

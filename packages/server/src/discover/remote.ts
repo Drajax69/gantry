@@ -94,6 +94,7 @@ export interface OpenPull {
   checks: 'passed' | 'pending' | 'failed' | 'unknown';
   ready: boolean;
   blockers: string[];
+  reviewStatus?: 'waiting' | 'changes_requested' | 'commented' | 'approved';
 }
 
 const FAILED_CONCLUSIONS = new Set(['ACTION_REQUIRED', 'CANCELLED', 'FAILURE', 'STARTUP_FAILURE', 'STALE', 'TIMED_OUT']);
@@ -126,7 +127,17 @@ export function normalizePull(raw: Record<string, unknown>): OpenPull {
     checks,
     ready: blockers.length === 0,
     blockers,
+    reviewStatus: pullReviewStatus(raw),
   };
+}
+
+export function pullReviewStatus(raw: Record<string, unknown>): NonNullable<OpenPull['reviewStatus']> {
+  const reviews = (raw.latestReviews ?? []) as { state?: string }[];
+  if (raw.reviewDecision === 'CHANGES_REQUESTED' || reviews.some(review => review.state === 'CHANGES_REQUESTED')) return 'changes_requested';
+  if (raw.reviewDecision === 'APPROVED') return 'approved';
+  if (reviews.some(review => review.state === 'COMMENTED')) return 'commented';
+  if (raw.reviewDecision !== 'REVIEW_REQUIRED' && reviews.some(review => review.state === 'APPROVED')) return 'approved';
+  return 'waiting';
 }
 
 export async function githubCliAvailable(): Promise<boolean> {
@@ -143,7 +154,7 @@ export async function listOpenPulls(repository: string, cwd: string): Promise<Op
     'gh',
     [
       'pr', 'list', '--repo', repository, '--state', 'open', '--limit', '100',
-      '--json', 'number,title,url,headRefName,headRefOid,isDraft,mergeStateStatus,statusCheckRollup,author,updatedAt',
+      '--json', 'number,title,url,headRefName,headRefOid,isDraft,mergeStateStatus,statusCheckRollup,author,updatedAt,reviewDecision,latestReviews',
     ],
     { cwd, timeoutMs: 30_000 },
   );

@@ -28,7 +28,7 @@ test("a space holds several PRs as tabs that keep their own state", async ({ pag
   await expect(tab(page, "fixture #1")).toBeVisible();
 
   await page.evaluate(() => document.documentElement.classList.add("electron"));
-  await expect(page.getByRole("banner")).toHaveCSS("padding-left", "88px");
+  await expect(page.getByRole("banner").filter({ has: page.getByRole("button", { name: "Switch space", exact: true }) })).toHaveCSS("padding-left", "88px");
   await expect(page.getByRole("button", { name: "Switch space", exact: true })).toHaveCSS("width", "288px");
   await page.evaluate(() => document.documentElement.classList.remove("electron"));
 

@@ -77,12 +77,20 @@ export class RemoteSync {
     try {
       const completedBranches = new Map<string, Set<string>>();
       if (this.githubCli === null) this.githubCli = await githubCliAvailable();
+      const failures: string[] = [];
       for (const project of await this.projects()) {
-        await this.syncProject(project, completedBranches);
+        // One workspace failing must not stop the others from syncing.
+        try {
+          await this.syncProject(project, completedBranches);
+        } catch (error) {
+          const message = `${project.config.project.id}: ${(error as Error).message}`;
+          failures.push(message);
+          this.log.warn(`remote sync failed for ${message}`);
+        }
       }
       await this.onCompleteTickets(completedBranches);
       this.lastSyncAt = Date.now();
-      this.lastError = null;
+      this.lastError = failures.length ? failures.join('; ') : null;
     } catch (error) {
       this.lastError = (error as Error).message;
       this.log.warn(`remote sync failed: ${this.lastError}`);
@@ -105,7 +113,11 @@ export class RemoteSync {
         }
       }
     }
-    await this.recomputeEvidence(project, completedBranches);
+    try {
+      await this.recomputeEvidence(project, completedBranches);
+    } catch (error) {
+      this.log.warn(`${projectId}: merge evidence failed: ${(error as Error).message}`);
+    }
   }
 
   private async recomputeEvidence(project: LoadedProject, completedBranches: Map<string, Set<string>>): Promise<void> {
@@ -117,6 +129,21 @@ export class RemoteSync {
     }[];
     for (const preview of previews) {
       if (preview.branch === '__primary__') continue;
+      try {
+        await this.recomputePreviewEvidence(projectId, preview, completedBranches);
+      } catch (error) {
+        // A single branch whose history is too large to compare must not stop the rest.
+        this.log.warn(`${projectId}:${preview.branch}: merge evidence skipped: ${(error as Error).message}`);
+      }
+    }
+  }
+
+  private async recomputePreviewEvidence(
+    projectId: string,
+    preview: { id: string; branch: string; merge_evidence: string | null },
+    completedBranches: Map<string, Set<string>>,
+  ): Promise<void> {
+    {
       const checkouts = this.db.prepare('SELECT * FROM preview_checkouts WHERE preview_id=?').all(preview.id) as {
         repository_id: string;
         path: string;
@@ -171,7 +198,7 @@ export class RemoteSync {
         }
         changed.push({ repositoryId: checkout.repository_id, evidence: evidenceText });
       }
-      if (!changed.length) continue;
+      if (!changed.length) return;
       const retired = shouldRetire(changed.map((item) => ({ isFallback: false, isPrimary: false, evidence: item.evidence })));
       this.db.prepare('UPDATE previews SET merge_evidence=?, retired=?, updated_at=? WHERE id=?').run(
         JSON.stringify(evidence),

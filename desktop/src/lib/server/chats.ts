@@ -157,13 +157,21 @@ function systemPrompt(t: PreparedTarget): string {
     ? `The change under review is \`git diff ${info.baseSha} ${info.headSha}\`. Use \`git diff ${info.baseSha} HEAD -- <path>\` to see what changed in a file and \`git log ${info.baseSha}..HEAD\` for its commits.`
     : "There is no diff; the user is browsing the repository.";
   return [
-    `You are helping someone review code in ${info.owner}/${info.repo}. The working directory is an editable local checkout initially based at ${info.headSha}.`,
+    info.kind === "doc"
+      ? `You are helping someone review and edit a ${info.repo} document (${info.url}). The working directory is a local copy of it; the document is document.md.`
+      : info.kind === "local"
+      ? `You are helping someone review what a Gantry ticket produced in its ${info.repo} worktree (often documents, such as a plan, rather than code). The working directory is that worktree, at ${info.headSha}.`
+      : `You are helping someone review code in ${info.owner}/${info.repo}. The working directory is an editable local checkout initially based at ${info.headSha}.`,
     diffHint,
     "",
     t.description,
     "",
     "Answer the reviewer's questions about this code. Read the surrounding code before answering, and cite locations as path:line.",
-    "Be direct and concise. Point out real bugs and risks when you see them. When the user asks for changes, edit files in this checkout and summarize the changes and validation. Preserve unrelated edits. Do not commit or push unless the user asks. Explain that edits are local to the Gantry checkout; the Local changes view shows them, and Commit and push publishes them to the PR.",
+    "Be direct and concise. Point out real bugs and risks when you see them. When the user asks for changes, edit files in this checkout and summarize the changes and validation. Preserve unrelated edits. Do not commit or push unless the user asks. " + (info.kind === "doc"
+      ? `Edits stay in the local copy as a draft; the Draft view shows them, and Publish to ${info.repo} writes them back. Never publish to ${info.repo} yourself.`
+      : info.kind === "local"
+      ? "Edits land in the ticket's own worktree, where its stages also work; the Local changes view shows them."
+      : "Explain that edits are local to the Gantry checkout; the Local changes view shows them, and Commit and push publishes them to the PR."),
     "When a picture would explain it better (a flow, a sequence of calls, how pieces connect, a state machine), draw a small diagram in a ```mermaid code block (flowchart, sequenceDiagram, classDiagram or stateDiagram). The reviewer sees it rendered. Keep it to the parts that matter, quote labels that contain punctuation, and still explain in words.",
   ].join("\n");
 }

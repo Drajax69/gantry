@@ -24,6 +24,16 @@ export async function GET(req: Request) {
       } catch {
         /* A new installation can use the provider default or enter an exact model ID. */
       }
+    } else if (provider.kind === 'opencode') {
+      try {
+        // One provider/model per line, from the providers you set up in OpenCode.
+        const stdout = await new Promise<string>((resolve, reject) =>
+          execFile(CLI.opencode, ['models'], { timeout: 15000, maxBuffer: 2_000_000 }, (error, out) => (error ? reject(error) : resolve(String(out)))),
+        );
+        models = stdout.split('\n').map((l) => l.trim()).filter((l) => /^[\w.-]+\/\S+$/.test(l)).map((id) => ({ id, label: id }));
+      } catch {
+        /* Keep the saved selection available even while the CLI is unavailable. */
+      }
     } else if (provider.kind === 'claude') {
       try {
         const stdout = await new Promise<string>((resolve, reject) =>
@@ -31,7 +41,7 @@ export async function GET(req: Request) {
         );
         const section = stdout.match(/--model <model>([\s\S]*?)(?=\n\s+--|$)/)?.[1] ?? '';
         const aliases = [...section.matchAll(/'([a-z][a-z0-9-]*)'/g)].map((m) => m[1]).filter((m) => !m.startsWith('claude-'));
-        models = [...new Set(aliases)].map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1), efforts: ['low', 'medium', 'high'] }));
+        models = [...new Set(aliases)].map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1), efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] }));
       } catch {
         /* Keep the saved selection available even while the CLI is unavailable. */
       }

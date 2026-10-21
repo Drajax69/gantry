@@ -151,6 +151,8 @@ export async function buildStatus(app: GantryApp): Promise<Record<string, unknow
         scopeDescription: ticketScopeDescription(ticket, project.config.services),
         branch: ticket.branch,
         additions: ticket.additions,
+        outcome: ticket.outcome ?? null,
+        awaitingReview: !!ticket.awaiting_review,
         workflow: ticketWorkflow(ticket),
         position: ticket.position,
         createdAt: ticket.created_at,

@@ -1,0 +1,1 @@
+ALTER TABLE tickets ADD COLUMN awaiting_review INTEGER NOT NULL DEFAULT 0;

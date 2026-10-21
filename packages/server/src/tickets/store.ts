@@ -20,6 +20,10 @@ export interface TicketRow {
   scopes_json?: string | null;
   branch: string;
   additions: string | null;
+  /** Final notes: the ticket's result, which may be a link rather than code. */
+  outcome?: string | null;
+  /** Set by the person: the ticket's work is out for review. */
+  awaiting_review?: number;
   position: number;
   active_run_id: string | null;
   workflow_json?: string | null;
@@ -29,6 +33,7 @@ export interface TicketRow {
 
 export const TICKET_TITLE_MAX = 140;
 export const TICKET_DESCRIPTION_MAX = 5000;
+export const TICKET_OUTCOME_MAX = 5000;
 
 export class TicketError extends Error {}
 
@@ -144,6 +149,24 @@ export class TicketStore {
     this.db
       .prepare('UPDATE tickets SET status=COALESCE(?, status), active_run_id=COALESCE(?, active_run_id), additions=COALESCE(?, additions), updated_at=? WHERE id=?')
       .run(values.status ?? null, values.active_run_id ?? null, values.additions ?? null, new Date().toISOString(), id);
+    return this.get(id)!;
+  }
+
+  /** Set or clear a ticket's final notes. Kept apart from update() so stages can write it without touching other fields. */
+  setOutcome(id: string, outcome: unknown): TicketRow {
+    if (outcome !== null && typeof outcome !== 'string') throw new TicketError('Final notes must be text.');
+    const text = (outcome ?? '').trim();
+    if (text.length > TICKET_OUTCOME_MAX) throw new TicketError(`Final notes must be ${TICKET_OUTCOME_MAX} characters or fewer.`);
+    const result = this.db.prepare('UPDATE tickets SET outcome=?, updated_at=? WHERE id=?').run(text || null, new Date().toISOString(), id);
+    if (Number(result.changes) === 0) throw new TicketError('Ticket not found.');
+    return this.get(id)!;
+  }
+
+  /** Mark or unmark a ticket as waiting on review. Only the person sets this; it tracks where the work really is. */
+  setAwaitingReview(id: string, value: unknown): TicketRow {
+    if (typeof value !== 'boolean') throw new TicketError('Waiting on review must be true or false.');
+    const result = this.db.prepare('UPDATE tickets SET awaiting_review=?, updated_at=? WHERE id=?').run(value ? 1 : 0, new Date().toISOString(), id);
+    if (Number(result.changes) === 0) throw new TicketError('Ticket not found.');
     return this.get(id)!;
   }
 

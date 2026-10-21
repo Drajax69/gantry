@@ -54,6 +54,8 @@ test('ticket PR indicators use cached status on the board, graph and details', a
         },
       });
     if (pathname === '/api/agents') return route.fulfill({ json: { agents: [], current: null } });
+    // The setup banner checks for herdr and a coding CLI; these fixtures have both.
+    if (pathname === '/api/setup') return route.fulfill({ json: { ok: true, herdr: { ok: true, detail: '' }, agent: { ok: true, detail: '' } } });
     unexpected.push(pathname);
     return route.fulfill({ status: 400, json: { error: 'Unexpected request blocked' } });
   });

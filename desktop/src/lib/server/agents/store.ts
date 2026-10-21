@@ -19,13 +19,18 @@ interface AgentsFile {
 
 const FILE = path.join(HOME, "agents.json");
 
-export const KIND_LABEL: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", openai: "Own provider" };
+export const KIND_LABEL: Record<AgentKind, string> = { claude: "Claude", codex: "Codex", opencode: "OpenCode", openai: "Own provider" };
 
 /** The CLI each local agent runs. Overridable for tests and odd installs. */
-export const CLI: Record<"claude" | "codex", string> = {
+export const CLI: Record<CliKind, string> = {
   claude: process.env.PR_LENS_CLAUDE || "claude",
   codex: process.env.PR_LENS_CODEX || "codex",
+  opencode: process.env.PR_LENS_OPENCODE || "opencode",
 };
+
+/** Agents that run as a local CLI, and so can also open as an interactive chat in herdr. */
+export type CliKind = Exclude<AgentKind, "openai">;
+export const isCliKind = (kind: AgentKind): kind is CliKind => kind !== "openai";
 
 const seed = (): AgentsFile => ({
   agents: [{ id: "claude", kind: "claude", name: "Claude", model: "" }],

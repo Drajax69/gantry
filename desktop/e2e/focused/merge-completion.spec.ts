@@ -23,6 +23,8 @@ test('merge completion moves the linked ticket without reload or waiting for pol
     if (path === '/api/comments') return json({ comments: [], reviews: [], threads: [] });
     if (path === '/api/chat/events') return route.fulfill({ contentType: 'text/event-stream', body: ': test\n\n' });
     if (path === '/api/merge') { merges++; ticket.status = 'done'; return json({ merged: true, warning: null }); }
+    // The setup banner checks for herdr and a coding CLI; these fixtures have both.
+    if (path === '/api/setup') return json({ ok: true, herdr: { ok: true, detail: '' }, agent: { ok: true, detail: '' } });
     unexpected.push(`${request.method()} ${path}`);
     return route.fulfill({ status: 400, json: { error: 'Unmocked request blocked' } });
   });

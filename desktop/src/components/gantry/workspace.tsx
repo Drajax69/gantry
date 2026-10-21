@@ -16,14 +16,17 @@ import { gantry, type ProjectView, type StatusView, type TicketView } from "@/li
 
 import { WorkspaceGraphPage } from "./workflow-canvas";
 import { TicketPullRequests } from "./ticket-pull-requests";
+import { TicketReviewStatus } from "./ticket-review-status";
 import { TicketGraph } from "./ticket-graph";
 import { useTicketColors } from "./ticket-colors";
 import { Workspace as ReviewWorkspace } from "@/components/space/workspace";
 import { PreviewPane } from "./preview-pane";
-import { TicketWorkflow, graphSummary } from "./workflow";
+import { GraphStatus, TicketWorkflow, graphSummary } from "./workflow";
+import { SetupCheck } from "./setup-check";
 import { DeleteTicketDialog } from "./delete-ticket-dialog";
 import { TicketDialog } from "./ticket-dialog";
 import { TicketConversation, ticketChatRequest, openTicketChat } from "./ticket-chat";
+import { TicketOutcome } from "./ticket-outcome";
 
 type Area = "tickets" | "reviews" | "previews" | "workflow";
 const labels: Record<string, string> = { backlog: "Backlog", in_progress: "In progress", done: "Done" };
@@ -103,7 +106,11 @@ export function GantryWorkspace() {
       const execution=item.execution;
       if(!execution)continue;
       const key=execution.state+execution.message;
-      if(executionNotices.current.get(item.id)!==key && execution.state==='waiting') toast.error(`${item.title} needs attention`,{description:execution.message,action:{label:'Open graph',onClick:()=>{setProjectId(item.projectId);setSelected(item.id);setTicketTab('details');}}});
+      const openGraph={label:'Open graph',onClick:()=>{setProjectId(item.projectId);setSelected(item.id);setTicketTab('details');}};
+      const seen=executionNotices.current.has(item.id);
+      if(executionNotices.current.get(item.id)!==key && execution.state==='waiting') toast.error(execution.decision?`${item.title} needs your choice`:`${item.title} needs attention`,{description:execution.decision?`${execution.decision.question}\n${execution.decision.options.map(o=>`• ${o.label}`).join('\n')}`:execution.message,action:openGraph});
+      // Announce a finished run once, leading with what it delivered.
+      if(seen && executionNotices.current.get(item.id)!==key && execution.state==='complete') toast.success(`${item.title} is ready for review`,{description:execution.deliverables?.length?execution.deliverables.map(d=>`${d.repo}:${d.url} ${d.title}`).join('\n'):execution.message,action:openGraph});
       executionNotices.current.set(item.id,key);
     }
   },[data]);
@@ -127,7 +134,7 @@ export function GantryWorkspace() {
     finally { setBusy(false); }
   }
   async function openChatFor(owner:TicketView) {
-    if(owner.execution){openTicket(owner.id);return;}
+    // Graph tickets open their master chat, which can read and drive the graph.
     await act(()=>openTicketChat(owner.id));
   }
   async function review(urls: string[], owner?: TicketView) {
@@ -194,10 +201,10 @@ export function GantryWorkspace() {
 
   const ticketCards = new Map(tickets.map(t => [t.id, <article key={t.id} style={ticketColor(t.id)} data-ticket-id={t.id} data-done={t.status === "done" || undefined} draggable={ticketView === "board" && !busy && !movingTickets.has(t.id)} onDragStart={e => { e.dataTransfer.setData("application/x-gantry-ticket", t.id); e.dataTransfer.effectAllowed = "move"; setDragging(t.id); }} onDragEnd={() => { setDragging(null); setDropColumn(null); }} className={cn("gantry-ticket rounded-lg border", selected === t.id && "gantry-ticket-selected", dragging === t.id && "opacity-50")}>
                   <button onClick={() => openTicket(t.id)} className="flex w-full flex-col gap-3 p-3 text-left focus-visible:outline-2 focus-visible:outline-ring" aria-pressed={selected === t.id}>
-                    <span className="flex items-start gap-2 break-words text-sm font-semibold"><span aria-hidden="true" className="gantry-ticket-dot mt-1 size-2 shrink-0 rounded-full" />{t.title}</span>
+                    <span className="flex w-full items-start gap-2 break-words text-sm font-semibold"><span aria-hidden="true" className="gantry-ticket-dot mt-1 size-2 shrink-0 rounded-full" /><span className="min-w-0 flex-1">{t.title}</span><TicketReviewStatus ticket={t} groups={data?.pulls ?? []} /></span>
                     <span className="flex max-w-full items-center gap-1.5 text-xs text-muted-foreground"><GitBranchIcon className="size-3 shrink-0" /><span className="truncate font-mono">{t.branch}</span></span>
                     <TicketPullRequests ticket={t} groups={data?.pulls ?? []} />
-                    {t.workflow && <span className={cn("text-xs", graphSummary(t.workflow, t.execution)?.waiting ? "font-semibold text-amber-700 dark:text-amber-300" : "text-muted-foreground")}>{graphSummary(t.workflow, t.execution)?.text}</span>}
+                    {t.workflow && <GraphStatus run={t.workflow} execution={t.execution} />}
                     {t.conversation && <span className="text-xs text-muted-foreground">Chat linked · {t.conversation.providerName}</span>}
                     {t.run && <span className="text-xs text-muted-foreground">{t.run.agent} · {t.run.state}</span>}
                   </button>
@@ -213,12 +220,10 @@ export function GantryWorkspace() {
     </header>
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <aside className="flex max-h-[35dvh] overflow-y-auto md:max-h-none shrink-0 flex-col gap-5 border-b bg-muted/20 p-4 md:w-56 md:border-r md:border-b-0">
-        <div className="space-y-2"><label htmlFor="gantry-project" className="text-xs font-medium text-muted-foreground">Workspace</label>
-          <select id="gantry-project" className={cn(selectClass, "w-full")} value={project?.id ?? ""} onChange={(e) => { setReviewSpace(null); setArea("tickets"); setProjectId(e.target.value); localStorage.setItem("gantry-workspace", e.target.value); setSelected(null); setCreating(false); setLog(null); }}>
-            {!data?.projects.length && <option value="">No workspace connected</option>}
-            {data?.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
+        <nav aria-label="Workspaces" className="space-y-1"><h2 className="mb-2 px-2 text-xs font-medium text-muted-foreground">Workspaces</h2>
+          {!data?.projects.length && <p className="px-2 text-sm text-muted-foreground">No workspace connected</p>}
+          {data?.projects.map((p) => { const active = data.tickets.filter((t) => t.projectId === p.id && t.status === "in_progress").length; return <Button key={p.id} variant={project?.id === p.id ? "secondary" : "ghost"} className="h-auto min-h-8 w-full justify-start text-left" aria-current={project?.id === p.id ? "true" : undefined} title={p.workspace} onClick={() => { if (project?.id === p.id) return; setReviewSpace(null); setArea("tickets"); setProjectId(p.id); localStorage.setItem("gantry-workspace", p.id); setSelected(null); setCreating(false); setLog(null); }}><span className="min-w-0 flex-1 whitespace-normal break-words">{p.name}</span>{active > 0 && <span className="pl-2 text-xs tabular-nums text-muted-foreground" aria-label={`${active} in progress`}>{active}</span>}</Button>; })}
+        </nav>
         <nav aria-label="Gantry workspace" className="flex gap-1 md:flex-col">
           {([["tickets", "Tickets", LayoutListIcon, tickets.filter(t => t.status === "in_progress").length], ["reviews", "Reviews", GitPullRequestIcon, pulls.length]] as const).map(([id, label, Icon, count]) =>
             <Button key={id} variant={area === id ? "secondary" : "ghost"} className={cn("justify-start", area === id && (id === "tickets" ? "gantry-nav-tickets" : "gantry-nav-reviews"))} aria-current={area === id ? "page" : undefined} onClick={() => changeArea(id)}><Icon />{label}<span className="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">{count}</span></Button>)}
@@ -249,6 +254,7 @@ export function GantryWorkspace() {
         </form>}
         {!data && !error && <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground"><Loader2Icon className="size-4 animate-spin" /> Loading your workspaces…</div>}
         {data && !project && <div className="max-w-xl space-y-3 p-8"><h2 className="text-lg font-medium">Connect your first workspace</h2><p className="text-sm leading-relaxed text-muted-foreground">Choose a Git repository or a folder of repositories. Gantry creates local configuration automatically. Configure your provider once in Settings, then start a ticket.</p><Button onClick={() => setAdding(true)}>Add workspace</Button></div>}
+        <SetupCheck />
         {area === "tickets" && tickets.some(t => t.status !== "done" && graphSummary(t.workflow, t.execution)?.waiting) && <div className="flex flex-wrap items-center gap-2 border-b bg-amber-50 px-6 py-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><span className="font-medium">Waiting on you</span>{tickets.filter(t => t.status !== "done" && graphSummary(t.workflow, t.execution)?.waiting).map(t => <Button key={t.id} size="sm" variant="ghost" onClick={() => openTicket(t.id)}>{t.title}</Button>)}</div>}
         {area !== "workflow" && area !== "previews" && jobs.length > 0 && <details className="border-b px-6 py-3 text-xs text-muted-foreground"><summary className="cursor-pointer">Activity · {jobs.length} recent jobs</summary><div className="mt-3 space-y-2">{jobs.map((j) => <div key={j.id} className="flex flex-wrap items-center gap-2"><State value={j.state} /><span>{j.kind} · {j.detail || j.phase || j.error || "Queued"}</span>{j.error && <span className="text-destructive">{j.error}</span>}</div>)}</div></details>}
 
@@ -347,11 +353,12 @@ function TicketDetail({ ticket: t, pullGroups, project, busy, act, onReview, onL
       <label className="flex items-center gap-3 text-sm">Stage<select className={selectClass} value={t.status} disabled={busy} onChange={(e) => void onStage(e.target.value)}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{t.description || "No notes added."}</p>
     </div>
-    {t.status === "in_progress" && <section className="space-y-3 border-t pt-5">{t.execution ? <p className="text-sm text-muted-foreground">Each workflow stage has its own conversation. Select a stage in the graph to see its history. Open a Codex stage chat while it runs. For terminal providers, pause before opening the chat.</p> : <TicketConversation ticketId={t.id} done={false} />}
+    <TicketOutcome key={`outcome-${t.id}`} ticket={t} busy={busy} act={act} />
+    {t.status === "in_progress" && <section className="space-y-3 border-t pt-5">{t.execution ? <><p className="text-sm text-muted-foreground">Open chat opens this ticket’s master chat in herdr. It sees the whole graph and can answer, retry, pause or resume stages, so its work shows in the graph. Each stage also keeps its own conversation: select a stage in the graph to see its history or open its stage chat.</p><Button disabled={busy} onClick={() => void act(() => openTicketChat(t.id))}><MessageSquareIcon />Open chat<ArrowUpRightIcon /></Button></> : <TicketConversation ticketId={t.id} done={false} />}
       <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy || !!running} onClick={() => void act(() => ticketChatRequest(t.id, "prepare"), "Ticket worktrees are ready")}>Create worktrees</Button></div>
       {t.run && <div className="flex flex-wrap items-center gap-2"><State value={t.run.state} /><Button size="sm" variant="ghost" disabled={busy} onClick={() => void onLog("Previous agent output", t.run!.logUrl)}>View previous output</Button>{running && <Button variant="outline" disabled={busy} onClick={() => void act(() => gantry.handoffTicket(t.id), "Previous agent stopped. You can continue in Chat.")}>Take over</Button>}</div>}
     </section>}
-    {t.status === "in_progress" && <section className="space-y-3 border-t pt-5"><h3 className="text-sm font-medium">Review space</h3><p className="text-sm text-muted-foreground">All pull requests for this ticket stay together in its own space.</p><Button disabled={busy || !t.reviewSpaceId} onClick={() => void onReview([])}>Open ticket space<ArrowUpRightIcon /></Button>{t.pullRequests.map((p) => <Button key={p.url} variant="outline" size="sm" disabled={busy} onClick={() => void onReview([p.url])}>Review {p.role} #{p.number}</Button>)}{t.artifacts.map((a) => <a key={a.file} href={bridge(a.url)} target="_blank" rel="noreferrer" className="block text-sm underline underline-offset-4">{a.label}</a>)}</section>}
+    {t.status === "in_progress" && <section className="space-y-3 border-t pt-5"><h3 className="text-sm font-medium">Review space</h3><p className="text-sm text-muted-foreground">Everything this ticket produced stays together in its own space: pull requests, commits it made locally (like a plan), and links in its final notes.</p><Button disabled={busy || !t.reviewSpaceId} onClick={() => void onReview([])}>Open ticket space<ArrowUpRightIcon /></Button>{t.pullRequests.map((p) => <Button key={p.url} variant="outline" size="sm" disabled={busy} onClick={() => void onReview([p.url])}>Review {p.role} #{p.number}</Button>)}{t.artifacts.map((a) => <a key={a.file} href={bridge(a.url)} target="_blank" rel="noreferrer" className="block text-sm underline underline-offset-4">{a.label}</a>)}</section>}
     <div className="border-t pt-5">{confirmDelete ? <div className="space-y-3"><p className="text-sm">Delete this ticket? Its worktrees and pull requests will remain.</p><div className="flex gap-2"><Button variant="destructive" disabled={busy} onClick={() => void act(() => gantry.deleteTicket(t.id)).then((ok) => { if (ok) onDeleted(); })}>Delete ticket</Button><Button variant="ghost" onClick={() => setConfirmDelete(false)}>Cancel</Button></div></div> : <Button variant="ghost" size="sm" disabled={busy || !!running} onClick={() => setConfirmDelete(true)}>Delete ticket…</Button>}</div>
   </div>;
 }

@@ -1,0 +1,52 @@
+#!/usr/bin/env node
+// Offline herdr: answers the commands Gantry sends with herdr's JSON shapes, keeps its
+// workspaces, tabs and panes in a state file, and logs each call to external-launches.jsonl.
+// `pane run` also logs the launch script's command, since the real script deletes itself.
+const fs = require('node:fs');
+const path = require('node:path');
+const home = process.env.PR_LENS_HOME;
+const args = process.argv.slice(2);
+const stateFile = path.join(home, 'fake-herdr.json');
+const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, 'utf8')) : { n: 0, workspaces: {}, tabs: {}, panes: {} };
+const id = (prefix) => `${prefix}${++state.n}`;
+const out = (result) => { fs.writeFileSync(stateFile, JSON.stringify(state)); process.stdout.write(JSON.stringify({ id: 'cli', result }) + '\n'); };
+const fail = (message) => { fs.writeFileSync(stateFile, JSON.stringify(state)); process.stderr.write(message + '\n'); process.exit(1); };
+const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+
+const entry = { command: 'herdr', args };
+if (args[0] === 'pane' && args[1] === 'run') {
+  const script = (args[3] || '').match(/^sh '(.+)'$/)?.[1];
+  if (script && fs.existsSync(script)) entry.script = fs.readFileSync(script, 'utf8');
+}
+fs.appendFileSync(path.join(home, 'external-launches.jsonl'), JSON.stringify(entry) + '\n');
+if (args[0] === '--version') { process.stdout.write('herdr 0.0.0-e2e\n'); process.exit(0); }
+if (fs.existsSync(path.join(home, 'fail-external-launch'))) fail('fixture launch failure');
+
+const [kind, action, target] = args;
+const pane = (tab, cwd) => { const p = id(`${tab.split(':')[0]}:p`); state.panes[p] = { pane_id: p, tab_id: tab, cwd, agent: null }; return state.panes[p]; };
+if (kind === 'workspace' && action === 'create') {
+  const w = id('w'); const t = `${w}:t1`;
+  state.workspaces[w] = { workspace_id: w, label: flag('--label') };
+  state.tabs[t] = { tab_id: t, workspace_id: w };
+  const root = pane(t, flag('--cwd'));
+  out({ workspace: state.workspaces[w], tab: { ...state.tabs[t], root_pane: root } });
+} else if (kind === 'tab' && action === 'create') {
+  const w = flag('--workspace'); const t = id(`${w}:t`);
+  state.tabs[t] = { tab_id: t, workspace_id: w, label: flag('--label') };
+  out({ tab: state.tabs[t], root_pane: pane(t, flag('--cwd')) });
+} else if (action === 'get') {
+  const table = { workspace: state.workspaces, tab: state.tabs, pane: state.panes }[kind];
+  if (!table?.[target]) fail(`${kind} ${target} not found`);
+  out({ [kind]: table[target] });
+} else if (kind === 'pane' && action === 'list') {
+  out({ panes: Object.values(state.panes).filter((p) => p.tab_id.startsWith(`${flag('--workspace')}:`)) });
+} else if (kind === 'pane' && action === 'split') {
+  out({ pane: pane(state.panes[target].tab_id, flag('--cwd')) });
+} else if (kind === 'pane' && action === 'run') {
+  // The agent reports itself once its CLI starts, as herdr's integrations do.
+  state.panes[target].agent = 'fixture';
+  out({});
+} else {
+  // rename, focus, close, send-text, send-keys: nothing to model.
+  out({});
+}

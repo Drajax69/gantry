@@ -1,6 +1,7 @@
 import { executionFor } from "@/lib/server/workflow-executor";
 import { conversationFor, publicConversation } from "@/lib/server/ticket-conversations";
 import { syncGantrySpaces } from "@/lib/server/spaces";
+import { ticketOutputs } from "@/lib/server/ticket-outputs";
 import type { StatusView } from "@/lib/client/gantry";
 
 /** Same-origin bridge to the local Gantry service; never accepts an upstream URL. */
@@ -17,7 +18,7 @@ const writes = [
   /^api\/projects$/,
   /^api\/projects\/[\w-]+\/(refresh|tickets|chat-prompt|workflow)$/,
   /^api\/projects\/[\w-]+\/tickets\/reorder$/,
-  /^api\/tickets\/[\w-]+\/(update|delete|prompt|start|handoff|resume|workflow|workflow-progress)$/,
+  /^api\/tickets\/[\w-]+\/(update|outcome|awaiting-review|delete|prompt|start|handoff|resume|workflow|workflow-progress)$/,
   /^api\/previews\/[\w-]+\/(pause|resume|restart|retry-dependencies|archive|restore|environment)$/,
 ];
 
@@ -67,8 +68,16 @@ async function proxy(req: Request, context: Context) {
 
     if (route === "api/status" && response.ok) {
       const status = await response.json() as StatusView;
-      const spaces = syncGantrySpaces(status);
-      responseBody = JSON.stringify({ ...status, tickets: status.tickets.map(t => { const execution=executionFor(t.id); return { ...t, ...(execution ? {workflow:{graph:execution.graph,revision:t.workflow?.revision??0,states:Object.fromEntries(Object.entries(execution.steps).map(([id,state])=>[id,{state,message:execution.attempts.filter(a=>a.nodeId===id).at(-1)?.summary||''}]))},execution:{state:execution.state,message:execution.message,updatedAt:execution.updatedAt}} : {}), reviewSpaceId: spaces[t.id], conversation: publicConversation(conversationFor(t.id)) }; }) });
+      // PRs a stage reported join the ticket's review space alongside those found on its branch.
+      for (const t of status.tickets) {
+        const reported = executionFor(t.id)?.deliverables ?? [];
+        for (const d of reported) if (!t.pullRequests.some(p => p.url === d.url)) t.pullRequests.push({ role: 'agent', number: Number(d.url.split('/').at(-1)) || 0, url: d.url, title: d.title });
+      }
+      // Extra outputs are a convenience: finding them must never break the board.
+      let outputs: ReturnType<typeof ticketOutputs> = {};
+      try { outputs = ticketOutputs(status, id => executionFor(id)?.deliverables ?? []); } catch (error) { console.error("[gantry] Could not list ticket outputs.", error); }
+      const spaces = syncGantrySpaces(status, outputs);
+      responseBody = JSON.stringify({ ...status, tickets: status.tickets.map(t => { const execution=executionFor(t.id); return { ...t, ...(execution ? {workflow:{graph:execution.graph,revision:t.workflow?.revision??0,states:Object.fromEntries(Object.entries(execution.steps).map(([id,state])=>[id,{state,message:execution.attempts.filter(a=>a.nodeId===id).at(-1)?.summary||''}]))},execution:{activeNodeId:execution.activeNodeId,state:execution.state,message:execution.message,updatedAt:execution.updatedAt,decision:execution.decision,deliverables:execution.deliverables}} : {}), reviewSpaceId: spaces[t.id], conversation: publicConversation(conversationFor(t.id)) }; }) });
     }
     return new Response(responseBody, {
       status: response.status,

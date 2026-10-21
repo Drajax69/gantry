@@ -14,6 +14,12 @@ const post = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+/** How chats open in herdr. Mirrors LauncherSettings on the server. */
+export interface TerminalLauncher {
+  terminalApp: "ghostty" | "terminal";
+  herdrPath: string;
+}
+
 export interface HomeData {
   review: PrListItem[];
   mine: PrListItem[];
@@ -33,7 +39,7 @@ export const api = {
   saveFile: (id: string, path: string, text: string, revision: string) => call<{ text: string; revision: string }>("/api/file-edit", post({ id, path, text, revision })),
   tree: (id: string, source = "pr") => call<string[]>(`/api/tree?${q({ id, source })}`),
   localChanges: (id: string) => call<LocalChanges>(`/api/local-changes?${q({ id })}`),
-  publish: (id: string, snapshot: LocalChanges, message: string) => call<{commit:string;branch:string}>("/api/local-changes", post({id, tree:snapshot.tree, head:snapshot.head, message})),
+  publish: (id: string, snapshot: LocalChanges, message: string) => call<{commit:string;branch:string;warning?:string}>("/api/local-changes", post({id, tree:snapshot.tree, head:snapshot.head, message})),
   ask: (id: string, text: string, opts: { anchor?: Anchor | null; thread?: string; quote?: Quote[] } = {}) =>
     call<{ msg: ChatMessage }>("/api/chat", post({ id, text, anchor: opts.anchor ?? null, thread: opts.thread, quote: opts.quote })),
   comments: (id: string, refresh = false) => call<CommentsResponse>(`/api/comments?${q(refresh ? { id, refresh: "1" } : { id })}`),
@@ -50,6 +56,8 @@ export const api = {
     call<AgentsResponse>("/api/agents", { ...post({ id, ...patch }), method: "PATCH" }),
   removeAgent: (id: string) => call<AgentsResponse>(`/api/agents?${q({ id })}`, { method: "DELETE" }),
   testAgent: (id: string) => call<AgentStatus>("/api/agents/test", post({ id })),
+  terminalLauncher: () => call<TerminalLauncher>("/api/terminal-launcher"),
+  saveTerminalLauncher: (settings: TerminalLauncher) => call<TerminalLauncher>("/api/terminal-launcher", post(settings)),
   addToSpace: (url: string, space?: string) =>
     call<{ space: Space; id: string; file: string | null }>("/api/spaces/add", post({ url, space })),
 };
@@ -64,6 +72,8 @@ export function shortLabel(id: string): string {
     case "pull": return `${repo} #${ref}`;
     case "commit": return `${repo} @${ref.slice(0, 7)}`;
     case "compare": return `${repo} ${ref}`;
+    case "local": return `${repo} (local)`;
+    case "doc": return `${repo[0].toUpperCase()}${repo.slice(1)} doc`;
     default: return `${repo} : ${ref}`;
   }
 }

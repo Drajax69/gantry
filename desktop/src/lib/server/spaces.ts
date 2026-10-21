@@ -6,6 +6,7 @@ import type { Space, SpacesResponse } from "@/lib/types";
 import { HOME } from "./exec";
 import type { StatusView } from "@/lib/client/gantry";
 import { parseGithub } from "@/lib/github-url";
+import type { TicketOutputs } from "./ticket-outputs";
 import { SPACE_COLORS, SPACE_EMOJI, spaceStyle } from "@/lib/space-style";
 
 const FILE = path.join(HOME, "spaces.json");
@@ -117,7 +118,7 @@ export function deleteSpace(id: string): SpacesResponse {
 }
 
 /** Provision one stable space per workspace/ticket, keeping historical PRs and review state. */
-export function syncGantrySpaces(status: StatusView): Record<string, string> {
+export function syncGantrySpaces(status: StatusView, outputs: Record<string, TicketOutputs> = {}): Record<string, string> {
   const data = read();
   let changed = false;
   const result: Record<string, string> = {};
@@ -142,10 +143,21 @@ export function syncGantrySpaces(status: StatusView): Record<string, string> {
       ...ticket.pullRequests.map(p => p.url),
       ...status.pulls.filter(g => g.projectId === project.id && g.branch === ticket.branch).flatMap(g => Object.values(g.pulls).map(p => p.url)),
     ];
-    for (const url of urls) {
+    const targets = urls.flatMap((url) => {
       const parsed = parseGithub(url);
-      if (parsed?.kind !== "pull") continue;
-      const target = `${parsed.owner}/${parsed.repo}/pull/${parsed.number}`;
+      return parsed?.kind === "pull" ? [`${parsed.owner}/${parsed.repo}/pull/${parsed.number}`] : [];
+    });
+    // A local output gives way to a PR from the same repo, which shows the same commits.
+    const hasPull = (github: string | null) => !!github && [...targets, ...space.targets].some((t) => t.toLowerCase().startsWith(`${github}/pull/`));
+    for (const local of outputs[ticket.id]?.targets ?? []) {
+      if (hasPull(local.github) && space.targets.includes(local.id)) {
+        space.targets = space.targets.filter((t) => t !== local.id);
+        if (space.active === local.id) space.active = space.targets[0] ?? null;
+        changed = true;
+      }
+    }
+    const locals = (outputs[ticket.id]?.targets ?? []).filter((l) => !hasPull(l.github)).map((l) => l.id);
+    for (const target of [...targets, ...locals]) {
       if (!space.targets.includes(target)) {
         space.targets.push(target);
         space.active ??= target;
@@ -153,6 +165,8 @@ export function syncGantrySpaces(status: StatusView): Record<string, string> {
         changed = true;
       }
     }
+    const links = outputs[ticket.id]?.links ?? [];
+    if (JSON.stringify(space.links ?? []) !== JSON.stringify(links)) { space.links = links; changed = true; }
     result[ticket.id] = space.id;
   }
   if (!data.spaces.some(s => !s.gantry?.completed)) {

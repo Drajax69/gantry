@@ -52,7 +52,7 @@ beforeEach(async () => {
   mocks.context.mockImplementation(async (id) => ({
     ticket: { ...tickets.get(id), title: 'Fixture', description: 'Ticket instructions', branch: 'ticket-branch' },
     stagePrompt: 'Workspace conventions',
-    project: { id: 'project' },
+    project: { id: 'project', workspace: mocks.home },
     checkouts: [{ repositoryId: 'repo', path: mocks.home }],
   }));
   vi.stubGlobal(

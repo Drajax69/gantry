@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 test.beforeEach(() => { fs.rmSync(path.resolve('e2e/.tmp/home/workflow-runs/ticket-1.json'), {force:true}); });
-test('running Codex stages can open their chat without pausing automation', async ({ page, request }) => {
+test('a running stage chat opens only after pausing, since herdr resumes the same session', async ({ page, request }) => {
   const graph = { nodes: [{ id: 'plan', label: 'Plan', kind: 'agent', instructions: 'Plan', dependsOn: [] }] };
   await request.post('/api/gantry/api/projects/fixture/workflow', { data: graph });
   await request.post('/api/gantry/api/projects/fixture/tickets', { data: { title: 'Live chat fixture' } });
@@ -20,9 +20,8 @@ test('running Codex stages can open their chat without pausing automation', asyn
   });
   await page.goto('/');
   await page.locator('article').filter({ hasText: 'Live chat fixture' }).getByRole('button').first().click();
-  await expect(page.getByRole('button', { name: 'Open stage chat' })).toBeEnabled();
-  await page.getByRole('button', { name: 'Open stage chat' }).click();
-  expect(actions).toEqual(['open']);
+  await expect(page.getByRole('button', { name: 'Open stage chat' })).toBeDisabled();
+  expect(actions).toEqual([]);
   await expect(page.getByText('Automation · running')).toBeVisible();
 });
 

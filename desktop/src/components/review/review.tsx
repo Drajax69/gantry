@@ -137,7 +137,8 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
           const first = localRevision.current === null;
           localRevision.current = next.revision;
           setFiles({}); setFileError({}); setAllFiles(null);
-          if (first && (next.files.length || next.commits)) { setSource("local"); setCurrent(next.files[0]?.path ?? null); }
+          // A ticket's local output opens on what it committed; its worktree's stray files can wait.
+          if (first && (next.files.length || next.commits) && !id.startsWith("~")) { setSource("local"); setCurrent(next.files[0]?.path ?? null); }
         }
       } catch (e) { if (live) setLocalError((e as Error).message); }
     };
@@ -354,7 +355,7 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{t.title}</div>
           <div className="truncate text-xs text-muted-foreground">
-            {t.owner}/{t.repo} · {t.subtitle}
+            {t.kind === "doc" ? t.subtitle : `${t.kind === "local" ? t.repo : `${t.owner}/${t.repo}`} · ${t.subtitle}`}
           </div>
         </div>
         <AgentPicker />
@@ -373,9 +374,9 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
         <Button variant="ghost" size="icon-sm" onClick={refresh} disabled={refreshing} aria-label="Fetch latest">
           <RefreshCwIcon className={refreshing ? "animate-spin" : undefined} />
         </Button>
-        <Button variant="ghost" size="icon-sm" nativeButton={false} render={<a href={t.url} target="_blank" rel="noreferrer" />} aria-label="Open on GitHub">
+        {t.url && <Button variant="ghost" size="icon-sm" nativeButton={false} render={<a href={t.url} target="_blank" rel="noreferrer" />} aria-label={t.kind === "doc" ? `Open in ${t.repo}` : "Open on GitHub"}>
           <ExternalLinkIcon />
-        </Button>
+        </Button>}
         {!embedded && (
           <>
             <Button variant="ghost" size="sm" onClick={addToSpace}>
@@ -388,12 +389,16 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
       </header>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
         <div role="group" aria-label="Change source" className="flex gap-1">
-          <Button size="sm" variant={source === "pr" ? "secondary" : "ghost"} aria-pressed={source === "pr"} onClick={() => { setSource("pr"); setCurrent(data.files[0]?.path ?? null); setFiles({}); setFileError({}); setAllFiles(null); }}>PR changes</Button>
-          <Button size="sm" variant={source === "local" ? "secondary" : "ghost"} aria-pressed={source === "local"} onClick={() => { setSource("local"); setCurrent(local?.files[0]?.path ?? null); setFiles({}); setFileError({}); setAllFiles(null); }}>Local changes{local ? ` (${local.files.length})` : ""}</Button>
+          <Button size="sm" variant={source === "pr" ? "secondary" : "ghost"} aria-pressed={source === "pr"} onClick={() => { setSource("pr"); setCurrent(data.files[0]?.path ?? null); setFiles({}); setFileError({}); setAllFiles(null); }}>{t.kind === "doc" ? `In ${t.repo}` : t.kind === "local" ? "Committed" : "PR changes"}</Button>
+          <Button size="sm" variant={source === "local" ? "secondary" : "ghost"} aria-pressed={source === "local"} onClick={() => { setSource("local"); setCurrent(local?.files[0]?.path ?? null); setFiles({}); setFileError({}); setAllFiles(null); }}>{t.kind === "doc" ? "Draft" : "Local changes"}{local ? ` (${local.files.length})` : ""}</Button>
         </div>
-        <p className="min-w-0 flex-1 text-xs text-muted-foreground">{localError || (source === "local" ? local?.files.length || local?.commits ? "Edits and commits not yet on this PR." : "No local changes waiting to be published." : "Changes published on GitHub.")}</p>
+        <p className="min-w-0 flex-1 text-xs text-muted-foreground">{localError || (t.kind === "doc"
+          ? source === "local" ? local?.files.length ? `Edits not yet published to ${t.repo}.` : "No edits yet. Edit the document here or ask Claude to." : `What changed in ${t.repo} since Gantry last fetched it.`
+          : t.kind === "local"
+          ? source === "local" ? local?.files.length || local?.commits ? "Uncommitted edits and new commits in the ticket's worktree." : "Nothing uncommitted in the ticket's worktree." : "What the ticket committed in its worktree. There is no pull request."
+          : source === "local" ? local?.files.length || local?.commits ? "Edits and commits not yet on this PR." : "No local changes waiting to be published." : "Changes published on GitHub.")}</p>
         {isPull && t.prState === "open" && <Button size="sm" variant="outline" disabled={!local || !!local.files.length || !!local.commits || !!pending || !!queued.length || !!localError || refreshing} onClick={() => setMerging(true)}>Merge PR</Button>}
-        {isPull && <Button size="sm" disabled={!local || (!local.files.length && !local.commits) || !!pending || !!queued.length || !!localError} onClick={() => setPublishing(local)}>Commit and push</Button>}
+        {(isPull || t.kind === "doc") && <Button size="sm" disabled={!local || (!local.files.length && !local.commits) || !!pending || !!queued.length || !!localError} onClick={() => setPublishing(local)}>{t.kind === "doc" ? `Publish to ${t.repo}` : "Commit and push"}</Button>}
       </div>
       {merging && <MergeDialog id={id} head={t.headSha} title={t.title} onClose={() => setMerging(false)} onMerged={(warning) => {
         setMerging(false);
@@ -402,7 +407,7 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
         if (warning) toast.warning(warning); else toast.success("PR merged. Gantry will move the ticket to Done once all its changes are merged.");
         void refresh();
       }} />}
-      {publishing && <PublishDialog id={id} snapshot={publishing} onClose={() => setPublishing(null)} onPublished={() => { setPublishing(null); setSource("pr"); localRevision.current = null; toast.success("Changes pushed to the PR"); void refresh(); }} />}
+      {publishing && <PublishDialog id={id} snapshot={publishing} doc={t.kind === "doc" ? { source: t.repo, url: t.url } : undefined} onClose={() => setPublishing(null)} onPublished={(warning) => { setPublishing(null); setSource("pr"); localRevision.current = null; toast.success(t.kind === "doc" ? `Published to ${t.repo}` : "Changes pushed to the PR"); if (warning) toast.warning(warning); void refresh(); }} />}
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
         <ResizablePanel id="files" defaultSize="18%" minSize={160}>
           <FileList

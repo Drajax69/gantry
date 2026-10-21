@@ -246,3 +246,41 @@ test('service scope migration preserves tickets from the previous schema', async
     migrated.close();
   }
 });
+
+describe('TicketStore.setOutcome', () => {
+  test('sets, keeps across edits, and clears final notes', async () => {
+    const { store } = await makeStore();
+    const ticket = store.create('proj', { title: 'Scope sync' }, SCOPES, 'codex');
+    assert.equal(ticket.outcome ?? null, null);
+    const url = 'https://docs.example.com/d/01a15c3d-8b99-739b-91a3-a74e24a1b5d9';
+    assert.equal(store.setOutcome(ticket.id, `  ${url}\n`).outcome, url);
+    assert.equal(store.update(ticket.id, { title: 'Scope two-way sync' }, SCOPES, 'codex').outcome, url);
+    assert.equal(store.setOutcome(ticket.id, '').outcome, null);
+  });
+
+  test('rejects non-text, oversized notes and unknown tickets', async () => {
+    const { store } = await makeStore();
+    const ticket = store.create('proj', { title: 'Scope sync' }, SCOPES, 'codex');
+    assert.throws(() => store.setOutcome(ticket.id, 42), TicketError);
+    assert.throws(() => store.setOutcome(ticket.id, 'x'.repeat(5001)), TicketError);
+    assert.throws(() => store.setOutcome('missing', 'note'), TicketError);
+  });
+});
+
+describe('TicketStore.setAwaitingReview', () => {
+  test('ticks and unticks, and keeps the flag across edits', async () => {
+    const { store } = await makeStore();
+    const ticket = store.create('proj', { title: 'Scope sync' }, SCOPES, 'codex');
+    assert.equal(!!ticket.awaiting_review, false);
+    assert.equal(store.setAwaitingReview(ticket.id, true).awaiting_review, 1);
+    assert.equal(store.update(ticket.id, { title: 'Scope two-way sync' }, SCOPES, 'codex').awaiting_review, 1);
+    assert.equal(store.setAwaitingReview(ticket.id, false).awaiting_review, 0);
+  });
+
+  test('rejects anything but a boolean, and unknown tickets', async () => {
+    const { store } = await makeStore();
+    const ticket = store.create('proj', { title: 'Scope sync' }, SCOPES, 'codex');
+    assert.throws(() => store.setAwaitingReview(ticket.id, 'yes'), TicketError);
+    assert.throws(() => store.setAwaitingReview('missing', true), TicketError);
+  });
+});

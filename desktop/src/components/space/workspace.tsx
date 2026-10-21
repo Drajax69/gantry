@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2Icon, PlusIcon, XIcon } from "lucide-react";
+import { ArrowUpRightIcon, Loader2Icon, PlusIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -251,7 +251,7 @@ export function Workspace({ spaceId, initialTarget, initialFile, onNavigateSpace
       <header className={cn("flex h-12 shrink-0 items-center gap-2 border-b px-3", !onNavigateSpace && "app-bar")}>
         {!onNavigateSpace && <BackToTickets projectId={space.gantry?.projectId} ticketId={space.gantry?.ticketId} />}
         <SpaceSwitcher spaces={data.spaces} current={space} onSwitch={switchTo} onCreate={create} onRename={rename} onDelete={remove} />
-        <nav role="tablist" aria-label="Pull requests in this space" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <nav role="tablist" aria-label="Outputs in this space" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           {tabs.map((t) => {
             const a = activity[t];
             const unread = t !== active && (a?.answers ?? 0) > (seen[t] ?? 0);
@@ -283,6 +283,19 @@ export function Workspace({ spaceId, initialTarget, initialFile, onNavigateSpace
               </div>
             );
           })}
+          {space.links?.map((l) => (
+            <a
+              key={l.url}
+              href={l.url}
+              target="_blank"
+              rel="noreferrer"
+              title={l.url}
+              className="flex h-8 max-w-56 shrink-0 items-center gap-1 rounded-md border border-dashed px-2.5 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            >
+              <span className="min-w-0 truncate">{l.title}</span>
+              <ArrowUpRightIcon className="size-3 shrink-0" />
+            </a>
+          ))}
           {adding ? (
             <form onSubmit={add} className="flex shrink-0 items-center gap-1">
               <Input

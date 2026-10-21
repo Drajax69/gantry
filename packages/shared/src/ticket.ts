@@ -33,6 +33,10 @@ export interface TicketView {
   updatedAt: string;
   workflow?: import('./workflow.js').WorkflowRun | null;
   additions: string | null;
+  /** Final notes: the ticket's result, which may be a link rather than code. */
+  outcome: string | null;
+  /** Set by the person: the ticket's work is out for review. */
+  awaitingReview: boolean;
   run: TicketRunView | null;
   previewUrl: string | null;
   previewStatus: string | null;

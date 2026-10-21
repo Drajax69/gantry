@@ -1,10 +1,11 @@
-import { PlugIcon, SparkleIcon, TerminalIcon } from "lucide-react";
+import { CodeIcon, PlugIcon, SparkleIcon, TerminalIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AgentKind } from "@/lib/types";
 
 const STYLE: Record<AgentKind, { Icon: typeof PlugIcon; tint: string }> = {
   claude: { Icon: SparkleIcon, tint: "bg-orange-500/15 text-orange-600 dark:text-orange-400" },
   codex: { Icon: TerminalIcon, tint: "bg-zinc-500/15 text-zinc-700 dark:text-zinc-300" },
+  opencode: { Icon: CodeIcon, tint: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" },
   openai: { Icon: PlugIcon, tint: "bg-sky-500/15 text-sky-700 dark:text-sky-300" },
 };
 

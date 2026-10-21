@@ -12,6 +12,8 @@ export interface RunHooks {
   /** Cost of the whole session so far, when the agent reports one. */
   cost(totalUsd: number): void;
   error(message: string): void;
+  /** Tool calls the agent's own permission system refused (Claude Code `permission_denials`). */
+  denied?(denials: { tool_name: string; tool_input?: Record<string, unknown> }[]): void;
 }
 
 export interface Turn {
@@ -23,7 +25,16 @@ export interface RunInput {
   agent: StoredAgent;
   /** Explicit autonomous ticket execution; review-chat defaults remain unchanged. */
   coordinator?: boolean;
-  workflow?: { reasoningEffort?: string; addDirs: string[] };
+  workflow?: {
+    reasoningEffort?: string;
+    addDirs: string[];
+    /** Workspace allow rules chosen in Gantry (Claude --allowedTools). */
+    allowedTools?: string[];
+    /** Extra MCP servers for this stage (Claude --mcp-config file). */
+    mcpConfig?: string;
+    /** Workspace Claude settings file whose allow and deny rules apply to this stage (Claude --settings). */
+    settings?: string;
+  };
   /** The editable local checkout under review. */
   cwd: string;
   system: string;
@@ -43,12 +54,12 @@ export type Driver = (input: RunInput) => Promise<void>;
 export function runCli(
   cmd: string,
   args: string[],
-  opts: { cwd: string; stdin: string; signal: AbortSignal; onLine: (line: string) => void; processGroup?: boolean },
+  opts: { cwd: string; stdin: string; signal: AbortSignal; onLine: (line: string) => void; processGroup?: boolean; env?: Record<string, string> },
 ): Promise<{ code: number | null; stopped: boolean; killed?: string; stderr: string; spawnError?: Error }> {
   return new Promise((resolve) => {
     const child = spawn(/*turbopackIgnore: true*/ cmd, args, {
       cwd: opts.cwd,
-      env: process.env,
+      env: opts.env ? { ...process.env, ...opts.env } : process.env,
       stdio: ['pipe', 'pipe', 'pipe'],
       signal: opts.signal,
       killSignal: 'SIGTERM',
@@ -148,6 +159,6 @@ export function transcript(history: Turn[], max = 12_000): string {
 
 export function toolDetail(input: Record<string, unknown> | undefined): string {
   if (!input) return '';
-  const v = input.command ?? input.file_path ?? input.pattern ?? input.path ?? input.url;
+  const v = input.command ?? input.file_path ?? input.filePath ?? input.pattern ?? input.path ?? input.url;
   return typeof v === 'string' ? v : JSON.stringify(input).slice(0, 200);
 }

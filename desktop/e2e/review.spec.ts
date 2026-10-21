@@ -426,6 +426,10 @@ test("answers can draw diagrams", async ({ page }) => {
   await expect(diagram).toBeVisible({ timeout: 30_000 });
   await expect(diagram).toContainText("add called");
   await expect(diagram).toContainText("return sum");
+  // It stays put across the review's 3s poll instead of being redrawn.
+  await diagram.evaluate((el) => el.setAttribute("data-seen", ""));
+  await page.waitForTimeout(4_000);
+  await expect(page.locator("[data-diagram] svg[data-seen]")).toHaveCount(1);
   // The agent is told it can draw.
   expect(claudeCalls().at(-1)!.args.join(" ")).toContain("```mermaid");
   expect(errors).toEqual([]);

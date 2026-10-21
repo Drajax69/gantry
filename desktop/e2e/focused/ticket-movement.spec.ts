@@ -32,6 +32,8 @@ test('moving tickets keeps other chats and reviews available without automatic l
       Object.assign(tickets[0], request.postDataJSON());
       return json(tickets[0]);
     }
+    // The setup banner checks for herdr and a coding CLI; these fixtures have both.
+    if (url.pathname === '/api/setup') return json({ ok: true, herdr: { ok: true, detail: '' }, agent: { ok: true, detail: '' } });
     unexpected.push(`${request.method()} ${url.pathname}`);
     return json({ error: 'Unmocked request blocked' }, 400);
   });

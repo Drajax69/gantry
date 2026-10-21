@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { AgentPicker } from "@/components/agents/agent-picker";
 import { useAgents } from "@/lib/client/agents";
 
-type Conversation = { provider: "codex" | "claude"; providerName: string; sessionId: string };
+type Conversation = { provider: "claude" | "codex" | "opencode"; providerName: string; sessionId: string };
 export async function ticketChatRequest(ticketId: string, action: string) {
   const response = await fetch('/api/ticket-chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticketId, action }) });
   const body = await response.json();
@@ -16,7 +16,7 @@ export async function ticketChatRequest(ticketId: string, action: string) {
 export async function openTicketChat(ticketId: string) {
   const result = await ticketChatRequest(ticketId, 'open');
   const conversation = result.conversation as Conversation;
-  toast.success(conversation.provider === 'codex' ? 'Opened this ticket in Codex' : 'Opened this ticket in Claude Code');
+  toast.success(`Opened this ticket's ${conversation.providerName} chat in herdr`);
   return conversation;
 }
 
@@ -35,12 +35,12 @@ export function TicketConversation({ ticketId, done }: { ticketId: string; done:
   const unsupported = !conversation && current?.kind === 'openai';
   return <section className="space-y-3" aria-label="Ticket conversation">
     <h3 className="text-sm font-medium">Conversation</h3>
-    {conversation ? <p className="text-sm text-muted-foreground">Linked to {conversation.providerName}. Open chat reopens this ticket’s saved conversation{conversation.provider === 'claude' ? ' in Terminal' : ' in the Codex app'}.</p> : <>
+    {conversation ? <p className="text-sm text-muted-foreground">Linked to {conversation.providerName}. Open chat reopens this ticket’s saved conversation in herdr.</p> : <>
       <div className="flex items-center gap-3"><AgentPicker align="start" /><span className="text-xs text-muted-foreground">Default for new conversations</span></div>
-      <p className="text-sm text-muted-foreground">Open chat prepares this ticket’s worktrees and opens its conversation in your provider. Continue the feature and create its PR there; linked PRs appear in Review.</p>
+      <p className="text-sm text-muted-foreground">Open chat prepares this ticket’s worktrees and opens its conversation in herdr. Continue the feature and create its PR there; linked PRs appear in Review.</p>
     </>}
     {!conversation && current?.kind === 'codex' && <p className="text-xs text-muted-foreground">New Codex chats start with Full Access, including filesystem and network access without approval prompts.</p>}
-    {unsupported && <p className="text-sm text-muted-foreground">API providers have no external conversation launcher. Select Codex or Claude to work on this ticket.</p>}
+    {unsupported && <p className="text-sm text-muted-foreground">API providers have no external conversation launcher. Select Claude Code, OpenCode or Codex to work on this ticket.</p>}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <Button disabled={loading || opening || unsupported || (done && !conversation)} onClick={async () => {
       setOpening(true); setError(null);

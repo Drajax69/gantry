@@ -12,10 +12,38 @@ export interface Attempt {
   sessionId?: string;
   chatOpened?: boolean;
   chatVersion?: string;
+  /** Latest stage-chat message (ms) already copied into the run's replies. */
+  chatAbsorbedAt?: number;
+  /** When the stage chat was last opened from Gantry. */
+  chatOpenedAt?: number;
+  /** Tool calls the provider refused during this attempt, with the allow rule that would cover each. */
+  denials?: { rule: string; tool: string; detail: string }[];
   providerId: string;
-  providerKind: 'codex' | 'claude' | 'openai';
+  providerKind: 'codex' | 'claude' | 'opencode' | 'openai';
   model: string;
   commits: Record<string, string>;
+}
+/** A choice the user can make with one click instead of free text. */
+export interface DecisionOption {
+  id: string;
+  label: string;
+  /** Configured connection to follow when chosen (coordinator choices). Stage choices rerun the stage with the answer. */
+  edgeId?: string;
+}
+export interface Decision {
+  nodeId: string;
+  question: string;
+  options: DecisionOption[];
+  source: 'coordinator' | 'stage';
+  at: number;
+}
+/** A pull request a stage reported back to Gantry (shown as `<repo>:<url> <title>`). */
+export interface Deliverable {
+  repo: string;
+  url: string;
+  title: string;
+  nodeId: string;
+  at: number;
 }
 export interface Execution {
   ticketId: string;
@@ -31,20 +59,68 @@ export interface Execution {
   routing?: { nodeId: string; outcome: Outcome; summary: string };
   coordinatorSessionId?: string;
   routes?: { edgeId: string | null; reason: string; at: number }[];
-  replies?: { nodeId: string; message: string; at: number }[];
+  replies?: { nodeId: string; message: string; at: number; source?: 'app' | 'chat' | 'choice' }[];
+  /** The open question, if the run is waiting on a choice. */
+  decision?: Decision;
+  /** Fingerprint of the coordinator input that last produced a wait; identical input is not re-sent. */
+  waitKey?: string;
+  /** Pull requests reported by stages, newest last. */
+  deliverables?: Deliverable[];
+  /** A stage stopped because tools were refused; `alreadyAllowed` were allowed in Gantry yet still refused. */
+  blocked?: { nodeId: string; rules: string[]; alreadyAllowed: string[]; at: number };
+  /** What happened outside stage attempts and routes (pauses, retries, choices, blocks), newest last. */
+  events?: RunEvent[];
+}
+export interface RunEvent {
+  at: number;
+  kind: string;
+  text: string;
+  nodeId?: string;
+}
+/** Keep a bounded log the timeline can show. */
+export function logEvent(run: Execution, kind: string, text: string, nodeId?: string) {
+  run.events ??= [];
+  run.events.push({ at: Date.now(), kind, text: text.slice(0, 600), ...(nodeId ? { nodeId } : {}) });
+  if (run.events.length > 200) run.events.splice(0, run.events.length - 200);
 }
 export function nextNode(run: Execution) {
   if (run.graph.edges !== undefined) return run.graph.nodes.find((n) => n.id === (run.activeNodeId || run.graph.entryNodeId) && run.steps[n.id] === 'pending');
   return run.graph.nodes.find((n) => run.steps[n.id] === 'pending' && n.dependsOn.every((id) => run.steps[id] === 'done'));
 }
-export function parseOutcome(output: string): { outcome: Outcome; summary: string } {
+const MAX_CHOICES = 6;
+const cleanLabel = (value: unknown) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, 200) : '');
+const PR_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)$/;
+export type ReportedPull = { repo: string; url: string; title: string };
+export interface StageExtras {
+  choices?: string[];
+  question?: string;
+  pullRequests?: ReportedPull[];
+  /** The ticket's final notes (its result, often a link), written to the ticket when present. */
+  finalNotes?: string;
+}
+export function parseOutcome(output: string): { outcome: Outcome; summary: string } & StageExtras {
   const lines = output.trim().split('\n');
   const marker = lines.at(-1)?.startsWith('GANTRY_RESULT ') ? lines.at(-1) : undefined;
   if (!marker) throw new Error('Agent did not return a structured handover. Review its output, then retry.');
   const result = JSON.parse(marker.slice('GANTRY_RESULT '.length));
   if (!['done', 'changes_requested', 'waiting', 'failed'].includes(result.outcome) || typeof result.summary !== 'string' || !result.summary.trim())
     throw new Error('Agent returned an invalid handover.');
-  return { outcome: result.outcome, summary: result.summary.slice(0, 12000) };
+  const choices = Array.isArray(result.choices) ? [...new Set(result.choices.map(cleanLabel).filter(Boolean))].slice(0, MAX_CHOICES) as string[] : [];
+  const pullRequests: ReportedPull[] = [];
+  for (const pr of Array.isArray(result.pullRequests) ? result.pullRequests.slice(0, 20) : []) {
+    const url = typeof pr?.url === 'string' ? pr.url.trim().replace(/\/$/, '') : '';
+    const match = PR_URL.exec(url);
+    if (!match || pullRequests.some((p) => p.url === url)) continue;
+    pullRequests.push({ repo: cleanLabel(pr.repo) || match[2], url, title: cleanLabel(pr.title) || `#${match[3]}` });
+  }
+  return {
+    outcome: result.outcome,
+    summary: result.summary.slice(0, 12000),
+    ...(choices.length ? { choices } : {}),
+    ...(choices.length && typeof result.question === 'string' && result.question.trim() ? { question: result.question.trim().slice(0, 600) } : {}),
+    ...(pullRequests.length ? { pullRequests } : {}),
+    ...(typeof result.finalNotes === 'string' && result.finalNotes.trim() ? { finalNotes: result.finalNotes.trim().slice(0, 5000) } : {}),
+  };
 }
 /** Reset the correction target and every dependent, retaining all attempt history. */
 export function resetFrom(run: Execution, target: string) {
@@ -56,12 +132,34 @@ export function resetFrom(run: Execution, target: string) {
         reset.add(n.id);
   for (const id of reset) run.steps[id] = 'pending';
 }
-export function finishAttempt(run: Execution, attempt: Attempt, outcome: Outcome, summary: string) {
+/** Record PRs a stage reported; a later report for the same URL updates its title. */
+export function recordDeliverables(run: Execution, nodeId: string, pulls: ReportedPull[] = []) {
+  if (!pulls.length) return;
+  run.deliverables ??= [];
+  for (const pr of pulls) {
+    const existing = run.deliverables.find((d) => d.url === pr.url);
+    if (existing) Object.assign(existing, { repo: pr.repo, title: pr.title, nodeId, at: Date.now() });
+    else run.deliverables.push({ ...pr, nodeId, at: Date.now() });
+  }
+}
+export const formatDeliverable = (d: { repo: string; url: string; title: string }) => `${d.repo}:${d.url} ${d.title}`;
+/** Without an explicit question, ask the handover's last question, or fall back to its opening. */
+function questionFrom(summary: string) {
+  const asked = summary.match(/[^.!?\n]*\?/g)?.at(-1)?.trim();
+  return asked || (summary.length > 400 ? `${summary.slice(0, 400).trimEnd()}…` : summary);
+}
+export function finishAttempt(run: Execution, attempt: Attempt, outcome: Outcome, summary: string, extras: StageExtras = {}) {
+  const { choices, pullRequests } = extras;
   attempt.state = outcome;
   attempt.summary = summary;
   attempt.endedAt = Date.now();
   const node = run.graph.nodes.find((n) => n.id === attempt.nodeId)!;
   run.message = summary;
+  recordDeliverables(run, node.id, pullRequests);
+  run.decision =
+    outcome === 'waiting' && choices?.length
+      ? { nodeId: node.id, question: extras.question || questionFrom(summary), options: choices.map((label, i) => ({ id: `opt-${i + 1}`, label })), source: 'stage', at: Date.now() }
+      : undefined;
   if (run.graph.edges !== undefined) {
     run.steps[node.id] = outcome === 'done' ? 'done' : outcome === 'waiting' ? 'waiting' : 'failed';
     if (outcome === 'done' || outcome === 'changes_requested') run.routing = { nodeId: node.id, outcome, summary };
@@ -70,7 +168,10 @@ export function finishAttempt(run: Execution, attempt: Attempt, outcome: Outcome
   }
   if (outcome === 'done') {
     run.steps[node.id] = 'done';
-    if (run.graph.nodes.every((n) => run.steps[n.id] === 'done')) run.state = 'complete';
+    if (run.graph.nodes.every((n) => run.steps[n.id] === 'done')) {
+      run.state = 'complete';
+      if (run.deliverables?.length) run.message = `${run.deliverables.map(formatDeliverable).join('\n')}\n\n${summary}`;
+    }
   } else if (outcome === 'changes_requested' && node.retryTarget) {
     const target = run.graph.nodes.find((n) => n.id === node.retryTarget)!;
     const count = run.attempts.filter((a) => a.nodeId === target.id).length;
@@ -86,6 +187,51 @@ export function finishAttempt(run: Execution, attempt: Attempt, outcome: Outcome
   }
 }
 
+/** Whether a configured connection may be followed from the handover awaiting routing. */
+function edgeAvailable(run: Execution, edgeId: unknown) {
+  const current = run.routing;
+  const edge = typeof edgeId === 'string' ? run.graph.edges?.find((e) => e.id === edgeId) : undefined;
+  if (!current || !edge) return null;
+  if (!(run.steps[edge.source] === 'done' || edge.source === current.nodeId)) return null;
+  if (current.outcome === 'changes_requested' && edge.source !== current.nodeId) return null;
+  return edge;
+}
+
+/**
+ * Follow one configured connection. Used by the coordinator and by a user's one-click choice.
+ * A user choice from the waiting node accepts that node's handover as settled.
+ */
+export function followEdge(run: Execution, edgeId: string, reason: string, chosenByUser = false) {
+  const current = run.routing;
+  if (!current) throw new Error('No handover is awaiting routing.');
+  const edge = run.graph.edges?.find((e) => e.id === edgeId);
+  if (!edge || !(run.steps[edge.source] === 'done' || edge.source === current.nodeId)) throw new Error('Coordinator selected an unavailable connection.');
+  if (current.outcome === 'changes_requested' && edge.source !== current.nodeId)
+    throw new Error('Corrections must follow a connection from the node requesting changes.');
+  const target = run.graph.nodes.find((n) => n.id === edge.target)!;
+  const visits = run.attempts.filter((a) => a.nodeId === target.id).length;
+  if (visits >= (target.maxAttempts ?? 3)) {
+    if (!chosenByUser) {
+      run.state = 'waiting';
+      run.message = `Visit limit reached for ${target.label}. ${reason}`;
+      return;
+    }
+    // An explicit choice authorizes one more visit.
+    target.maxAttempts = visits + 1;
+  }
+  if (chosenByUser && edge.source === current.nodeId) run.steps[edge.source] = 'done';
+  if (run.attempts.some((a) => a.nodeId === target.id)) resetFrom(run, target.id);
+  run.steps[target.id] = 'pending';
+  run.activeNodeId = target.id;
+  run.routing = undefined;
+  run.decision = undefined;
+  run.waitKey = undefined;
+  run.state = 'running';
+  run.message = reason;
+  run.routes ??= [];
+  run.routes.push({ edgeId, reason, at: Date.now() });
+}
+
 /** Only configured paths from completed work can be taken; arbitrary node IDs never execute. */
 export function applyRoute(run: Execution, output: string) {
   const line = output.trim().split('\n').at(-1);
@@ -96,6 +242,16 @@ export function applyRoute(run: Execution, output: string) {
   if (decision.wait === true) {
     run.state = 'waiting';
     run.message = decision.reason;
+    // Offer the user's options as buttons; only connections that could legally be followed are kept.
+    const options: DecisionOption[] = [];
+    for (const choice of Array.isArray(decision.choices) ? decision.choices : []) {
+      const edge = edgeAvailable(run, choice?.edgeId);
+      const label = cleanLabel(choice?.label);
+      if (edge && label && !options.some((o) => o.edgeId === edge.id)) options.push({ id: `opt-${options.length + 1}`, label, edgeId: edge.id });
+      if (options.length >= MAX_CHOICES) break;
+    }
+    const question = cleanLabel(decision.question) || decision.reason;
+    run.decision = options.length && run.routing ? { nodeId: run.routing.nodeId, question, options, source: 'coordinator', at: Date.now() } : undefined;
     return;
   }
   const current = run.routing;
@@ -104,26 +260,14 @@ export function applyRoute(run: Execution, output: string) {
     if (current.outcome !== 'done' || run.graph.edges?.some((e) => e.source === current.nodeId))
       throw new Error('Coordinator cannot finish before a terminal node completes.');
     run.state = 'complete';
-    run.message = decision.reason;
+    // The final output leads with what was delivered, one `<repo>:<url> <title>` line per PR.
+    run.message = run.deliverables?.length ? `${run.deliverables.map(formatDeliverable).join('\n')}\n\n${decision.reason}` : decision.reason;
     run.routing = undefined;
-  } else {
-    const edge = run.graph.edges?.find((e) => e.id === decision.edgeId);
-    if (!edge || !(run.steps[edge.source] === 'done' || edge.source === current.nodeId)) throw new Error('Coordinator selected an unavailable connection.');
-    if (current.outcome === 'changes_requested' && edge.source !== current.nodeId)
-      throw new Error('Corrections must follow a connection from the node requesting changes.');
-    const target = run.graph.nodes.find((n) => n.id === edge.target)!;
-    if (run.attempts.filter((a) => a.nodeId === target.id).length >= (target.maxAttempts ?? 3)) {
-      run.state = 'waiting';
-      run.message = `Visit limit reached for ${target.label}. ${decision.reason}`;
-      return;
-    }
-    if (run.attempts.some((a) => a.nodeId === target.id)) resetFrom(run, target.id);
-    run.steps[target.id] = 'pending';
-    run.activeNodeId = target.id;
-    run.routing = undefined;
-    run.state = 'running';
-    run.message = decision.reason;
+    run.decision = undefined;
+    run.waitKey = undefined;
+    run.routes ??= [];
+    run.routes.push({ edgeId: null, reason: decision.reason, at: Date.now() });
+    return;
   }
-  run.routes ??= [];
-  run.routes.push({ edgeId: decision.edgeId, reason: decision.reason, at: Date.now() });
+  followEdge(run, decision.edgeId, decision.reason);
 }

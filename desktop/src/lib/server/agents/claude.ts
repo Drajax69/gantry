@@ -15,6 +15,7 @@ interface StreamLine {
   message?: { content?: { type: string; name?: string; input?: Record<string, unknown> }[] };
   result?: unknown;
   total_cost_usd?: number;
+  permission_denials?: { tool_name?: string; tool_input?: Record<string, unknown> }[];
   is_error?: boolean;
 }
 
@@ -65,6 +66,11 @@ export const claude: Driver = async ({ agent, cwd, system, prompt, sessionId, hi
           '--append-system-prompt',
           system,
           ...workflow.addDirs.flatMap((dir) => ['--add-dir', dir]),
+          // If your Claude Code settings keep permission prompts on, these are the tools you allowed in Gantry.
+          ...(workflow.allowedTools?.length ? ['--allowedTools', workflow.allowedTools.join(',')] : []),
+          ...(workflow.mcpConfig ? ['--mcp-config', workflow.mcpConfig] : []),
+          // A fresh worktree is not a trusted folder, so its own .claude settings are ignored; this file's deny rules still hold.
+          ...(workflow.settings ? ['--settings', workflow.settings] : []),
         ]
       : [
           '-p',
@@ -83,7 +89,8 @@ export const claude: Driver = async ({ agent, cwd, system, prompt, sessionId, hi
           '--append-system-prompt',
           system,
         ];
-  if (workflow?.reasoningEffort) args.push('--effort', workflow.reasoningEffort === 'xhigh' ? 'high' : workflow.reasoningEffort);
+  // Claude Code takes low|medium|high|xhigh|max; Gantry's top level, ultra, runs as max.
+  if (workflow?.reasoningEffort) args.push('--effort', workflow.reasoningEffort === 'ultra' ? 'max' : workflow.reasoningEffort);
   if (agent.model) args.push('--model', agent.model);
   if (sessionId) args.push('--resume', sessionId);
 
@@ -116,6 +123,8 @@ export const claude: Driver = async ({ agent, cwd, system, prompt, sessionId, hi
         }
       } else if (ev.type === 'result') {
         if (typeof ev.total_cost_usd === 'number') hooks.cost(ev.total_cost_usd);
+        const denials = (ev.permission_denials ?? []).filter((d): d is { tool_name: string; tool_input?: Record<string, unknown> } => typeof d?.tool_name === 'string');
+        if (denials.length) hooks.denied?.(denials);
         if (!wrote && typeof ev.result === 'string') hooks.text(ev.result);
         if (ev.is_error) {
           failed = true;
