@@ -4,11 +4,13 @@ import path from 'node:path';
 import { execFile } from '@/lib/server/spawn';
 import { handle, requireLocalMutation } from '@/lib/server/http';
 import { getAgent, CLI } from '@/lib/server/agents/store';
+import { openCodeModels, qualifyOpenCodeModel } from '@/lib/server/agents/opencode-models';
 export async function GET(req: Request) {
   return handle(async () => {
     requireLocalMutation(req);
     const provider = getAgent(new URL(req.url).searchParams.get('providerId'));
     let models: { id: string; label: string; efforts?: string[] }[] = [];
+    let warning: string | undefined;
     if (provider.kind === 'codex') {
       try {
         const cached = JSON.parse(
@@ -27,12 +29,10 @@ export async function GET(req: Request) {
     } else if (provider.kind === 'opencode') {
       try {
         // One provider/model per line, from the providers you set up in OpenCode.
-        const stdout = await new Promise<string>((resolve, reject) =>
-          execFile(CLI.opencode, ['models'], { timeout: 15000, maxBuffer: 2_000_000 }, (error, out) => (error ? reject(error) : resolve(String(out)))),
-        );
-        models = stdout.split('\n').map((l) => l.trim()).filter((l) => /^[\w.-]+\/\S+$/.test(l)).map((id) => ({ id, label: id }));
-      } catch {
-        /* Keep the saved selection available even while the CLI is unavailable. */
+        models = (await openCodeModels()).map((id) => ({ id, label: id }));
+        if (provider.model && !provider.model.includes('/')) qualifyOpenCodeModel(provider.model, models.map((m) => m.id));
+      } catch (error) {
+        warning = (error as Error).message;
       }
     } else if (provider.kind === 'claude') {
       try {
@@ -46,7 +46,7 @@ export async function GET(req: Request) {
         /* Keep the saved selection available even while the CLI is unavailable. */
       }
     }
-    if (provider.model && !models.some((m) => m.id === provider.model)) models.unshift({ id: provider.model, label: provider.model });
-    return Response.json({ models, kind: provider.kind });
+    if (provider.model && provider.kind !== 'opencode' && !models.some((m) => m.id === provider.model)) models.unshift({ id: provider.model, label: provider.model });
+    return Response.json({ models, kind: provider.kind, warning });
   });
 }

@@ -7,6 +7,7 @@ import { gantry, type Workflow, type WorkflowRun, type TicketView } from '@/lib/
 import { ExecutionControls } from './workflow-execution';
 import { nodePositions } from '@/lib/client/workflow-graph';
 import { WorkflowCanvas } from './workflow-canvas';
+import { confirmGraphNavigation } from '@/lib/client/unsaved-graph';
 
 const stateLabel = { pending: 'Not started', running: 'In progress', waiting: 'Waiting on you', done: 'Complete', failed: 'Failed' };
 export type GraphPhase = 'complete' | 'waiting' | 'running' | 'next' | 'empty';
@@ -232,7 +233,7 @@ export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refres
       <div className="flex items-center gap-2">
         <GitBranchIcon className="size-4" />
         <h3 className="flex-1 font-medium">Ticket graph</h3>
-        <Button size="sm" variant="outline" disabled={ticket.status === 'done' || !!ticket.execution} onClick={() => setEditing(!editing)}>
+        <Button size="sm" variant="outline" disabled={ticket.status === 'done' || !!ticket.execution} onClick={() => { if (!editing || confirmGraphNavigation()) setEditing(!editing); }}>
           {editing ? 'View progress' : 'Edit graph'}
         </Button>
       </div>

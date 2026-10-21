@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState, type ReactNode, type PointerEvent } from 'react';
-import { PlusIcon, MinusIcon, XIcon, Trash2Icon, ArrowRightIcon, PlayIcon, MaximizeIcon } from 'lucide-react';
+import { PlusIcon, MinusIcon, XIcon, Trash2Icon, ArrowRightIcon, PlayIcon, MaximizeIcon, NotebookPenIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -9,6 +9,7 @@ import { gantry, type Workflow, type ProjectView } from '@/lib/client/gantry';
 import { canvasWorkflow, nodePositions } from '@/lib/client/workflow-graph';
 import { exportWorkflow, importWorkflow } from '../../../../packages/shared/src/workflow';
 import { WorkspacePromptDialog } from './workspace-prompt-dialog';
+import { useUnsavedGraph } from '@/lib/client/unsaved-graph';
 
 type Node = Workflow['nodes'][number];
 type Edge = NonNullable<Workflow['edges']>[number];
@@ -31,6 +32,7 @@ function EditorDialog({ title, onClose, children }: { title: string; onClose: ()
       aria-label={title}
       onCancel={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         onClose();
       }}
       className="fixed inset-0 m-auto max-h-[88dvh] w-[min(36rem,calc(100vw-32px))] max-w-none overflow-auto rounded-xl border bg-background p-6 text-foreground shadow-xl backdrop:bg-black/35"
@@ -61,6 +63,7 @@ function NodeEditor({
   const agents = useAgents();
   const [draft, setDraft] = useState(node);
   const [entry, setEntry] = useState(start);
+  const edits = useUnsavedGraph(JSON.stringify(draft) !== JSON.stringify(node) || entry !== start);
   const [models, setModels] = useState<{ id: string; label: string; efforts?: string[] }[]>([]);
   const [custom, setCustom] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -74,7 +77,10 @@ function NodeEditor({
         return r.json();
       })
       .then((data) => {
-        if (!abort.signal.aborted) setModels(data.models);
+        if (!abort.signal.aborted) {
+          setModels(data.models);
+          setModelError(data.warning || '');
+        }
       })
       .catch((e) => {
         if (!abort.signal.aborted) setModelError(e.message);
@@ -88,11 +94,12 @@ function NodeEditor({
     models.find((m) => m.id === (draft.model || provider?.model))?.efforts ??
     ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
   return (
-    <EditorDialog title="Edit node" onClose={onClose}>
+    <EditorDialog title="Edit node" onClose={() => { if (edits.confirmDiscard()) onClose(); }}>
       <form
         className="space-y-5"
         onSubmit={(e) => {
           e.preventDefault();
+          edits.markSaved();
           onSave({ ...draft, kind: 'agent' }, entry);
         }}
       >
@@ -239,7 +246,7 @@ export function WorkflowCanvas({
   });
   const [imported, setImported] = useState<Workflow | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [saved, setSaved] = useState(() => JSON.stringify(initial));
+  const [saved, setSaved] = useState(() => JSON.stringify(canvasWorkflow(initial)));
   const [selected, setSelected] = useState<string | null>(null);
   const [edgeId, setEdgeId] = useState<string | null>(null);
   const [edgeLabel, setEdgeLabel] = useState('');
@@ -257,6 +264,8 @@ export function WorkflowCanvas({
   const selectedNode = nodes.find((n) => n.id === selected);
   const selectedEdge = edges.find((e) => e.id === edgeId);
   const dirty = JSON.stringify(graph) !== saved;
+  const edits = useUnsavedGraph(dirty, () => { if (draftKey) sessionStorage.removeItem(draftKey); });
+  const edgeEdits = useUnsavedGraph(!!selectedEdge && edgeLabel !== selectedEdge.label);
   const width = Math.max(1400, ...Object.values(positions).map((p) => p.x + 400));
   const height = Math.max(800, ...Object.values(positions).map((p) => p.y + 300));
   useEffect(() => {
@@ -265,14 +274,6 @@ export function WorkflowCanvas({
       else sessionStorage.removeItem(draftKey);
     }
   }, [graph, dirty, draftKey]);
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
   function point(e: { clientX: number; clientY: number }) {
     const v = viewport.current!;
     const box = v.getBoundingClientRect();
@@ -365,6 +366,8 @@ export function WorkflowCanvas({
     setError('');
     try {
       await onSave(graph);
+      edits.markSaved();
+      if (draftKey) sessionStorage.removeItem(draftKey);
       setSaved(JSON.stringify(graph));
     } catch (e) {
       setError((e as Error).message);
@@ -436,7 +439,7 @@ export function WorkflowCanvas({
             Add node
           </Button>
           {onCancel && (
-            <Button size="sm" variant="ghost" onClick={onCancel}>
+            <Button size="sm" variant="ghost" onClick={() => { if (edits.confirmDiscard()) onCancel(); }}>
               Cancel
             </Button>
           )}
@@ -693,11 +696,12 @@ export function WorkflowCanvas({
         />
       )}
       {selectedEdge && (
-        <EditorDialog title="Name this connection" onClose={() => setEdgeId(null)}>
+        <EditorDialog title="Name this connection" onClose={() => { if (edgeEdits.confirmDiscard()) setEdgeId(null); }}>
           <form
             className="space-y-5"
             onSubmit={(e) => {
               e.preventDefault();
+              edgeEdits.markSaved();
               setGraph((g) => ({ ...g, edges: g.edges?.map((edge) => (edge.id === edgeId ? { ...edge, label: edgeLabel.trim() } : edge)) }));
               setEdgeId(null);
             }}
@@ -770,6 +774,14 @@ export function WorkspaceGraphPage({ project }: { project: ProjectView }) {
     );
   return (
     <>
+      <section aria-label="Shared instructions" className="flex flex-wrap items-center gap-4 border-b border-primary/20 bg-primary/5 px-5 py-4">
+        <NotebookPenIcon aria-hidden="true" className="size-5 shrink-0 text-primary" />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold">Make this graph yours with shared instructions</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Add your project context, coding conventions, and test commands once. Every stage uses them.</p>
+        </div>
+        <Button variant="outline" onClick={() => setPromptOpen(true)}>Edit shared instructions<ArrowRightIcon /></Button>
+      </section>
       <WorkflowCanvas
         portable
         draftKey={`gantry-graph-draft:${project.id}`}
@@ -778,9 +790,7 @@ export function WorkspaceGraphPage({ project }: { project: ProjectView }) {
         header={
           <div>
             <h1 className="text-base font-semibold">Workspace graph</h1>
-            <button className="mt-1 text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground" onClick={() => setPromptOpen(true)}>
-              Shared instructions
-            </button>
+            <p className="mt-1 text-xs text-muted-foreground">Customize the steps below, then save your graph.</p>
           </div>
         }
       />

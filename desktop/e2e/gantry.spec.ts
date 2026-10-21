@@ -194,13 +194,13 @@ test('tickets drag between columns and reopen one external Codex conversation', 
   await page.reload();
   const launches = path.resolve('e2e/.tmp/home/external-launches.jsonl');
   await page.getByRole('button',{name:'Workspace graph',exact:true}).click();
-  await page.getByRole('button',{name:'Shared instructions',exact:true}).click();
+  await page.getByRole('button',{name:'Edit shared instructions',exact:true}).click();
   await page.getByLabel('Starting prompt',{exact:true}).fill('Workspace delivery rule: implement ${ticket.title}, validate, then create a PR.');
   await page.getByRole('button',{name:'Save prompt',exact:true}).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.reload();
   await page.getByRole('button',{name:'Workspace graph',exact:true}).click();
-  await page.getByRole('button',{name:'Shared instructions',exact:true}).click();
+  await page.getByRole('button',{name:'Edit shared instructions',exact:true}).click();
   await expect(page.getByLabel('Starting prompt',{exact:true})).toHaveValue('Workspace delivery rule: implement ${ticket.title}, validate, then create a PR.');
   await page.screenshot({path:'e2e/.tmp/workspace-prompt.png'});
   await page.getByRole('dialog').last().getByRole('button',{name:'Cancel',exact:true}).click();

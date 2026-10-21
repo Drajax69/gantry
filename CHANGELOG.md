@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Resolve legacy bare OpenCode model names automatically from the workspace's model catalog for stage runs and chats. Unknown or ambiguous models now explain how to select a valid model; upstream errors identify the model, session and OpenCode log location, and model-list failures are visible in the dropdown editor.
+
 ### Changed
 
 - Ticket scopes now select one or more services from `gantry.yaml` using checkboxes in desktop and standalone dashboards, with persisted selections and service-based agent prompts. Older tickets and YAML remain readable.

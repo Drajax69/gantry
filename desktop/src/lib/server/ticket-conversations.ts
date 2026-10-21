@@ -1,4 +1,5 @@
 import "server-only";
+import { resolveOpenCodeModel } from './agents/opencode-models';
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -170,6 +171,7 @@ async function createCodexThread(record: Omit<TicketConversation, "sessionId">, 
  * through a short-lived local OpenCode server. The chat then resumes it with `opencode -s`.
  */
 async function createOpenCodeSession(record: Omit<TicketConversation, "sessionId">): Promise<string> {
+  record.model = await resolveOpenCodeModel(record.model, record.cwd);
   const password = randomUUID();
   const child = spawn(CLI.opencode, ["serve", "--port", "0", "--hostname", "127.0.0.1"], {
     cwd: record.cwd, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, OPENCODE_SERVER_PASSWORD: password },
@@ -231,6 +233,7 @@ async function launch(record: TicketConversation, work: TicketWorkspace, persist
     args = [CLI.codex, "resume", record.sessionId, "-C", record.cwd, "--sandbox", "danger-full-access", "--ask-for-approval", "never", ...(record.model ? ["--model", record.model] : []), ...(!record.promptPrefilled ? [opening] : [])];
   } else {
     // OpenCode takes no opening message when resuming, so herdr types it once the chat is up.
+    record.model = await resolveOpenCodeModel(record.model, record.cwd);
     args = [CLI.opencode, "-s", record.sessionId, ...(record.model ? ["--model", record.model] : [])];
     if (!record.promptPrefilled) typeMessage = opening;
   }

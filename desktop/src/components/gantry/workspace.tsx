@@ -27,6 +27,7 @@ import { DeleteTicketDialog } from "./delete-ticket-dialog";
 import { TicketDialog } from "./ticket-dialog";
 import { TicketConversation, ticketChatRequest, openTicketChat } from "./ticket-chat";
 import { TicketOutcome } from "./ticket-outcome";
+import { confirmGraphNavigation, useGraphNavigationGuard } from "@/lib/client/unsaved-graph";
 
 type Area = "tickets" | "reviews" | "previews" | "workflow";
 const labels: Record<string, string> = { backlog: "Backlog", in_progress: "In progress", done: "Done" };
@@ -42,6 +43,7 @@ function TicketPreview({owner,onChat,onTicketReview,...props}:Omit<ComponentProp
 }
 
 export function GantryWorkspace() {
+  useGraphNavigationGuard();
   const [reviewSpace, setReviewSpace] = useState<string | null>(null);
   const [data, setData] = useState<StatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -106,7 +108,7 @@ export function GantryWorkspace() {
       const execution=item.execution;
       if(!execution)continue;
       const key=execution.state+execution.message;
-      const openGraph={label:'Open graph',onClick:()=>{setProjectId(item.projectId);setSelected(item.id);setTicketTab('details');}};
+       const openGraph={label:'Open graph',onClick:()=>{if (!confirmGraphNavigation()) return; setProjectId(item.projectId);setSelected(item.id);setTicketTab('details');}};
       const seen=executionNotices.current.has(item.id);
       if(executionNotices.current.get(item.id)!==key && execution.state==='waiting') toast.error(execution.decision?`${item.title} needs your choice`:`${item.title} needs attention`,{description:execution.decision?`${execution.decision.question}\n${execution.decision.options.map(o=>`• ${o.label}`).join('\n')}`:execution.message,action:openGraph});
       // Announce a finished run once, leading with what it delivered.
@@ -138,6 +140,7 @@ export function GantryWorkspace() {
     await act(()=>openTicketChat(owner.id));
   }
   async function review(urls: string[], owner?: TicketView) {
+    if (!confirmGraphNavigation()) return;
     await act(async () => {
       const linked = owner ?? tickets.find(t => t.pullRequests.some(p => urls.includes(p.url)) || pulls.some(g => g.branch === t.branch && Object.values(g.pulls).some(p => urls.includes(p.url))));
       let targetSpace = linked?.reviewSpaceId;
@@ -157,11 +160,13 @@ export function GantryWorkspace() {
     });
   }
   function openTicket(id: string, preview = false, edit = false) {
+    if (!confirmGraphNavigation()) return;
     setEditingTicket(edit);
     setSelected(id); setCreating(false); setLog(null);
     setTicketTab(preview ? "preview" : "details");
   }
   function closeTicket() {
+    if (!confirmGraphNavigation()) return;
     setSelected(null); setCreating(false); setLog(null); setEditingTicket(false);
     const params = new URLSearchParams(window.location.search); params.delete("ticket");
     window.history.replaceState(null, "", `/?${params}`);
@@ -196,8 +201,8 @@ export function GantryWorkspace() {
     params.delete("ticket");
     window.history.replaceState(null, "", `/?${params}`);
   }, [area, reviewSpace, activeProjectId]);
-  const navigateReview = useCallback((id: string | null) => { setReviewSpace(id); setArea(current => id ? "reviews" : current === "reviews" ? "tickets" : current); }, []);
-  const changeArea = (next: Area) => { setArea(next); setLog(null); setCreating(false); };
+  const navigateReview = useCallback((id: string | null) => { if (!confirmGraphNavigation()) return; setReviewSpace(id); setArea(current => id ? "reviews" : current === "reviews" ? "tickets" : current); }, []);
+  const changeArea = (next: Area) => { if (next !== area && !confirmGraphNavigation()) return; setArea(next); setLog(null); setCreating(false); };
 
   const ticketCards = new Map(tickets.map(t => [t.id, <article key={t.id} style={ticketColor(t.id)} data-ticket-id={t.id} data-done={t.status === "done" || undefined} draggable={ticketView === "board" && !busy && !movingTickets.has(t.id)} onDragStart={e => { e.dataTransfer.setData("application/x-gantry-ticket", t.id); e.dataTransfer.effectAllowed = "move"; setDragging(t.id); }} onDragEnd={() => { setDragging(null); setDropColumn(null); }} className={cn("gantry-ticket rounded-lg border", selected === t.id && "gantry-ticket-selected", dragging === t.id && "opacity-50")}>
                   <button onClick={() => openTicket(t.id)} className="flex w-full flex-col gap-3 p-3 text-left focus-visible:outline-2 focus-visible:outline-ring" aria-pressed={selected === t.id}>
@@ -222,13 +227,13 @@ export function GantryWorkspace() {
       <aside className="flex max-h-[35dvh] overflow-y-auto md:max-h-none shrink-0 flex-col gap-5 border-b bg-muted/20 p-4 md:w-56 md:border-r md:border-b-0">
         <nav aria-label="Workspaces" className="space-y-1"><h2 className="mb-2 px-2 text-xs font-medium text-muted-foreground">Workspaces</h2>
           {!data?.projects.length && <p className="px-2 text-sm text-muted-foreground">No workspace connected</p>}
-          {data?.projects.map((p) => { const active = data.tickets.filter((t) => t.projectId === p.id && t.status === "in_progress").length; return <Button key={p.id} variant={project?.id === p.id ? "secondary" : "ghost"} className="h-auto min-h-8 w-full justify-start text-left" aria-current={project?.id === p.id ? "true" : undefined} title={p.workspace} onClick={() => { if (project?.id === p.id) return; setReviewSpace(null); setArea("tickets"); setProjectId(p.id); localStorage.setItem("gantry-workspace", p.id); setSelected(null); setCreating(false); setLog(null); }}><span className="min-w-0 flex-1 whitespace-normal break-words">{p.name}</span>{active > 0 && <span className="pl-2 text-xs tabular-nums text-muted-foreground" aria-label={`${active} in progress`}>{active}</span>}</Button>; })}
+          {data?.projects.map((p) => { const active = data.tickets.filter((t) => t.projectId === p.id && t.status === "in_progress").length; return <Button key={p.id} variant={project?.id === p.id ? "secondary" : "ghost"} className="h-auto min-h-8 w-full justify-start text-left" aria-current={project?.id === p.id ? "true" : undefined} title={p.workspace} onClick={() => { if (project?.id === p.id || !confirmGraphNavigation()) return; setReviewSpace(null); setArea("tickets"); setProjectId(p.id); localStorage.setItem("gantry-workspace", p.id); setSelected(null); setCreating(false); setLog(null); }}><span className="min-w-0 flex-1 whitespace-normal break-words">{p.name}</span>{active > 0 && <span className="pl-2 text-xs tabular-nums text-muted-foreground" aria-label={`${active} in progress`}>{active}</span>}</Button>; })}
         </nav>
         <nav aria-label="Gantry workspace" className="flex gap-1 md:flex-col">
           {([["tickets", "Tickets", LayoutListIcon, tickets.filter(t => t.status === "in_progress").length], ["reviews", "Reviews", GitPullRequestIcon, pulls.length]] as const).map(([id, label, Icon, count]) =>
             <Button key={id} variant={area === id ? "secondary" : "ghost"} className={cn("justify-start", area === id && (id === "tickets" ? "gantry-nav-tickets" : "gantry-nav-reviews"))} aria-current={area === id ? "page" : undefined} onClick={() => changeArea(id)}><Icon />{label}<span className="ml-auto pl-3 text-xs tabular-nums text-muted-foreground">{count}</span></Button>)}
         </nav>
-        {project && <nav aria-label="Previews" className="space-y-1"><h2 className="mb-2 flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground"><MonitorIcon className="size-4" />Previews</h2>{previewEntries.map(entry => <Button key={entry.id} variant={area === "previews" && activePreview.id === entry.id ? "secondary" : "ghost"} className={cn("h-auto min-h-8 w-full justify-start pl-6 text-left", area === "previews" && activePreview.id === entry.id && "gantry-nav-reviews")} aria-current={area === "previews" && activePreview.id === entry.id ? "page" : undefined} onClick={() => { setPreviewTicket(entry.id); changeArea("previews"); closeTicket(); }}><span className="min-w-0 whitespace-normal break-words">{entry.name}</span></Button>)}</nav>}
+        {project && <nav aria-label="Previews" className="space-y-1"><h2 className="mb-2 flex items-center gap-2 px-2 text-xs font-semibold text-muted-foreground"><MonitorIcon className="size-4" />Previews</h2>{previewEntries.map(entry => <Button key={entry.id} variant={area === "previews" && activePreview.id === entry.id ? "secondary" : "ghost"} className={cn("h-auto min-h-8 w-full justify-start pl-6 text-left", area === "previews" && activePreview.id === entry.id && "gantry-nav-reviews")} aria-current={area === "previews" && activePreview.id === entry.id ? "page" : undefined} onClick={() => { if (!confirmGraphNavigation()) return; setPreviewTicket(entry.id); changeArea("previews"); closeTicket(); }}><span className="min-w-0 whitespace-normal break-words">{entry.name}</span></Button>)}</nav>}
         <div className="mt-auto space-y-3">
           {project && <Button variant={area === "workflow" ? "secondary" : "ghost"} size="sm" className="w-full justify-start" aria-current={area === "workflow" ? "page" : undefined} onClick={() => changeArea("workflow")}><GitBranchIcon />Workspace graph</Button>}
           <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setAdding(!adding)}><PlusIcon /> Add workspace</Button>
@@ -244,7 +249,7 @@ export function GantryWorkspace() {
             {(["board", "graph"] as const).map(view => <Button key={view} size="sm" variant={ticketView === view ? "secondary" : "ghost"} aria-pressed={ticketView === view} onClick={() => { setTicketView(view); localStorage.setItem("gantry-ticket-view", view); }}>{view === "board" ? <LayoutListIcon /> : <NetworkIcon />}{view === "board" ? "Board" : "Graph"}</Button>)}
           </div>}
           <Button variant="outline" disabled={busy} onClick={() => void refresh()} aria-label="Refresh Gantry"><RefreshCwIcon /></Button>
-          {area === "tickets" && project && <Button disabled={busy} onClick={() => { setCreating(true); setSelected(null); setLog(null); setTicketTab("details"); }}><PlusIcon /> New ticket</Button>}
+          {area === "tickets" && project && <Button disabled={busy} onClick={() => { if (!confirmGraphNavigation()) return; setCreating(true); setSelected(null); setLog(null); setTicketTab("details"); }}><PlusIcon /> New ticket</Button>}
           {area === "reviews" && project && <Button variant="outline" disabled={busy} onClick={() => void act(() => gantry.refreshProject(project.id), "Remote sync queued")}><RefreshCwIcon /> Sync remote</Button>}
         </div>}
         {error && <div role="alert" className="border-b bg-destructive/5 px-6 py-3 text-sm text-destructive">{error} {data && "Showing the last loaded state."}</div>}
@@ -278,8 +283,8 @@ export function GantryWorkspace() {
               </section>;
             })}
           </section>}
-          {(creating || ticket) && <TicketDialog color={ticket ? ticketColor(ticket.id) : undefined} title={creating ? "New ticket" : ticket!.title} onClose={closeTicket}>
-            {ticket && <div className="flex shrink-0 gap-1 border-b px-6 py-2" role="tablist" aria-label="Ticket sections">{(["details", ...(ticket.status === "in_progress" ? ["preview"] : [])] as ("details" | "preview")[]).map(tab => <Button key={tab} role="tab" aria-selected={ticketTab === tab} variant={ticketTab === tab ? "secondary" : "ghost"} onClick={() => { setTicketTab(tab); setLog(null); }}>{tab === "details" ? "Details" : "Preview"}</Button>)}</div>}
+          {(creating || ticket) && <TicketDialog color={ticket ? ticketColor(ticket.id) : undefined} title={creating ? "New ticket" : ticket!.title} onClose={closeTicket} actions={ticket?.status === "in_progress" && ticket.execution ? <Button size="sm" disabled={busy} onClick={() => void openChatFor(ticket)}><MessageSquareIcon />Open master chat<ArrowUpRightIcon /></Button> : undefined}>
+            {ticket && <div className="flex shrink-0 gap-1 border-b px-6 py-2" role="tablist" aria-label="Ticket sections">{(["details", ...(ticket.status === "in_progress" ? ["preview"] : [])] as ("details" | "preview")[]).map(tab => <Button key={tab} role="tab" aria-selected={ticketTab === tab} variant={ticketTab === tab ? "secondary" : "ghost"} onClick={() => { if (tab !== ticketTab && !confirmGraphNavigation()) return; setTicketTab(tab); setLog(null); }}>{tab === "details" ? "Details" : "Preview"}</Button>)}</div>}
             <div className="min-h-0 flex-1 overflow-y-auto p-6">
             {log && <section className="border-b p-6"><div className="mb-3 flex items-center justify-between gap-3"><h2 className="font-medium">{log.title}</h2><Button variant="ghost" size="sm" onClick={() => setLog(null)}>Close log</Button></div><pre className="max-h-80 overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">{log.text || "No output yet."}</pre></section>}
             {(creating || ticketTab === "details") && <section id="ticket-details" aria-label="Ticket details">
@@ -347,14 +352,14 @@ function TicketDetail({ ticket: t, pullGroups, project, busy, act, onReview, onL
   if (editing) return <TicketForm project={project} ticket={t} busy={busy} onCancel={() => setEditing(false)} onSave={async (input) => { if (await act(() => gantry.updateTicket(t.id, input))) setEditing(false); }} />;
   return <div className="space-y-6">
     <TicketWorkflow key={t.id} ticket={t} refresh={() => act(async () => {})} />
-    <div className="space-y-3"><div className="flex items-start gap-3"><h2 className="min-w-0 flex-1 break-words text-lg font-semibold">{t.title}</h2><Button variant="ghost" size="sm" disabled={busy} onClick={() => { setEditing(true); }}>Edit</Button></div><p className="break-all font-mono text-xs text-muted-foreground">{t.branch}</p>
+    <div className="space-y-3"><div className="flex items-start gap-3"><h2 className="min-w-0 flex-1 break-words text-lg font-semibold">{t.title}</h2><Button variant="ghost" size="sm" disabled={busy} onClick={() => { if (confirmGraphNavigation()) setEditing(true); }}>Edit</Button></div><p className="break-all font-mono text-xs text-muted-foreground">{t.branch}</p>
       <p className="break-words text-xs text-muted-foreground">Scope: {t.scopeDescription ?? (ticketServiceScopes(t, project.services).join(", ") || "Workspace-wide")}</p>
       <TicketPullRequests ticket={t} groups={pullGroups} />
       <label className="flex items-center gap-3 text-sm">Stage<select className={selectClass} value={t.status} disabled={busy} onChange={(e) => void onStage(e.target.value)}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{t.description || "No notes added."}</p>
     </div>
     <TicketOutcome key={`outcome-${t.id}`} ticket={t} busy={busy} act={act} />
-    {t.status === "in_progress" && <section className="space-y-3 border-t pt-5">{t.execution ? <><p className="text-sm text-muted-foreground">Open chat opens this ticket’s master chat in herdr. It sees the whole graph and can answer, retry, pause or resume stages, so its work shows in the graph. Each stage also keeps its own conversation: select a stage in the graph to see its history or open its stage chat.</p><Button disabled={busy} onClick={() => void act(() => openTicketChat(t.id))}><MessageSquareIcon />Open chat<ArrowUpRightIcon /></Button></> : <TicketConversation ticketId={t.id} done={false} />}
+    {t.status === "in_progress" && <section className="space-y-3 border-t pt-5">{t.execution ? <p className="text-sm text-muted-foreground">Use Open master chat at the top to discuss the whole ticket, ask for changes, or resume its workflow. Stage history is available in the graph.</p> : <TicketConversation ticketId={t.id} done={false} />}
       <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy || !!running} onClick={() => void act(() => ticketChatRequest(t.id, "prepare"), "Ticket worktrees are ready")}>Create worktrees</Button></div>
       {t.run && <div className="flex flex-wrap items-center gap-2"><State value={t.run.state} /><Button size="sm" variant="ghost" disabled={busy} onClick={() => void onLog("Previous agent output", t.run!.logUrl)}>View previous output</Button>{running && <Button variant="outline" disabled={busy} onClick={() => void act(() => gantry.handoffTicket(t.id), "Previous agent stopped. You can continue in Chat.")}>Take over</Button>}</div>}
     </section>}

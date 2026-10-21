@@ -225,7 +225,13 @@ export function ExecutionControls({
                 Retry from this step
               </Button>
             )}
-            {attempts.at(-1)?.sessionId && attempts.at(-1)?.providerKind !== 'openai' && (
+          </>
+        )}
+      </div>
+      {attempts.at(-1)?.sessionId && attempts.at(-1)?.providerKind !== 'openai' && (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">Advanced: individual stage chat</summary>
+          <p className="my-2">For work on this stage alone. Use Open master chat at the top for the whole ticket.</p>
               <Button
                 size="sm"
                 variant="ghost"
@@ -237,10 +243,8 @@ export function ExecutionControls({
                 <MessageSquareIcon />
                 {lastChat ? 'Open stage chat again' : 'Open stage chat'}
               </Button>
-            )}
-          </>
-        )}
-      </div>
+        </details>
+      )}
       <p className={`text-xs text-muted-foreground ${(decision || blocked) && !active ? 'line-clamp-3' : ''}`}>
         {run?.message ||
           'Each stage gets its own agent session and handovers. Up to ten tickets execute at once; stages within a ticket run sequentially to protect its worktrees.'}

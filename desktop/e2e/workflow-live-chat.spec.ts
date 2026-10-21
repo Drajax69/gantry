@@ -20,6 +20,7 @@ test('a running stage chat opens only after pausing, since herdr resumes the sam
   });
   await page.goto('/');
   await page.locator('article').filter({ hasText: 'Live chat fixture' }).getByRole('button').first().click();
+  await page.getByText('Advanced: individual stage chat', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Open stage chat' })).toBeDisabled();
   expect(actions).toEqual([]);
   await expect(page.getByText('Automation · running')).toBeVisible();
