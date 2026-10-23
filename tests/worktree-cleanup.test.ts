@@ -8,6 +8,7 @@ import { ticketWorkspace } from '../packages/server/src/tickets/workspace.js';
 import { assessTicketCleanup, cleanupTicketWorktrees } from '../packages/server/src/tickets/cleanup.js';
 import { createHttpServer } from '../packages/server/src/http/server.js';
 import * as gitTools from '../packages/server/src/git/git.js';
+import { mergedEvidence } from '../packages/server/src/discover/merge-evidence.js';
 import { git, initFixtureRepo, tempDir, write } from './helpers.js';
 
 async function fixture() {
@@ -47,7 +48,7 @@ test('confirmed cleanup removes only the assessed checkout and retains ticket, b
     const refused = await server.inject({ method: 'POST', url, headers, payload: { checkouts: assessment.checkouts } });
     expect(refused.statusCode).toBe(400);
     expect(await fs.stat(f.checkout.path)).toBeTruthy();
-    const response = await server.inject({ method: 'POST', url, headers, payload: { confirm: true, checkouts: assessment.checkouts } });
+    const response = await server.inject({ method: 'POST', url, headers, payload: { confirm: true, ticketIds: assessment.ticketIds, checkouts: assessment.checkouts } });
     expect(response.statusCode).toBe(200);
     expect(response.json().results[0].status).toBe('removed');
     expect(response.json().assessment.checkouts).toEqual([]);
@@ -137,6 +138,62 @@ test('cleanup reports partial failure and never removes an unassessed path', asy
   }
 });
 
+test.each(['merged', 'missing-parent', 'missing-object', 'default-moved', 'head-moved'] as const)('nested squash cleanup revalidates both patch relationships: %s', async scenario => {
+  const f = await fixture();
+  try {
+    const originalBase = await git(f.workspace, 'rev-parse', 'HEAD');
+    for (const name of ['first', 'second']) {
+      await write(path.join(f.checkout.path, `${name}.txt`), `${name}\n`);
+      await git(f.checkout.path, 'add', '.');
+      await git(f.checkout.path, 'commit', '-m', name);
+    }
+    const head = await git(f.checkout.path, 'rev-parse', 'HEAD');
+    await git(f.workspace, 'checkout', '-b', 'TEST_parent');
+    await git(f.workspace, 'merge', '--squash', f.ticket.branch);
+    await git(f.workspace, 'commit', '-m', 'squash feature into parent');
+    await write(path.join(f.workspace, 'parent.txt'), 'additional parent work\n');
+    await git(f.workspace, 'add', '.');
+    await git(f.workspace, 'commit', '-m', 'parent work');
+    const parentHead = await git(f.workspace, 'rev-parse', 'HEAD');
+    await git(f.workspace, 'checkout', 'main');
+    await git(f.workspace, 'merge', '--squash', 'TEST_parent');
+    await git(f.workspace, 'commit', '-m', 'squash parent into main');
+    const base = await git(f.workspace, 'rev-parse', 'HEAD');
+    await git(f.workspace, 'update-ref', 'refs/remotes/origin/main', base);
+
+    const pr = { number: 1, head, merge: null };
+    const parent = { number: 2, head: parentHead, merge: null };
+    expect(await mergedEvidence(f.workspace, { head }, pr, base)).toBeNull();
+    expect(await mergedEvidence(f.workspace, { head }, pr, base, [pr, parent])).toMatch(/through PR #2/);
+    const now = new Date().toISOString();
+    const proof = { [f.checkout.repositoryId]: { number: 1, proof: { head, path: f.checkout.path, branch: f.ticket.branch }, evidence: 'PR changes are included through PR #2' } };
+    f.app.db.prepare('INSERT INTO previews (id, project_id, branch, merge_evidence, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run('TEST_nested', f.ticket.project_id, f.ticket.branch, JSON.stringify(proof), now, now);
+    const snapshot = vi.spyOn(f.app.remote, 'snapshotFor').mockReturnValue({
+      repository: '', remote: 'origin', defaultBranch: 'main', head: base,
+      checkedAt: Date.now(), error: null, githubCli: false, pullRefs: [pr, parent],
+    });
+    const assessment = await assessTicketCleanup(f.app, f.ticket.id);
+    expect(assessment.checkouts[0]?.eligible).toBe(true);
+
+    if (scenario === 'missing-parent') snapshot.mockReturnValue(null);
+    if (scenario === 'missing-object') parent.head = 'f'.repeat(40);
+    if (scenario === 'default-moved') await git(f.workspace, 'update-ref', 'refs/remotes/origin/main', originalBase);
+    if (scenario === 'head-moved') {
+      await write(path.join(f.checkout.path, 'unmerged.txt'), 'new work\n');
+      await git(f.checkout.path, 'add', '.');
+      await git(f.checkout.path, 'commit', '-m', 'new unmerged work');
+    }
+    const result = await cleanupTicketWorktrees(f.app, f.ticket.id, assessment.checkouts);
+    expect(result.results[0]?.status).toBe(scenario === 'merged' ? 'removed' : 'blocked');
+    const remaining = await fs.stat(f.checkout.path).catch(() => null);
+    if (scenario === 'merged') expect(remaining).toBeNull();
+    else expect(remaining).not.toBeNull();
+  } finally {
+    await f.close();
+  }
+});
+
 test('cleanup excludes preview discovery and concurrent ticket mutations', async () => {
   const f = await fixture();
   const server = await createHttpServer(f.app);
@@ -147,7 +204,7 @@ test('cleanup excludes preview discovery and concurrent ticket mutations', async
     const real = f.app.supervisor.withIdleProject.bind(f.app.supervisor);
     vi.spyOn(f.app.supervisor, 'withIdleProject').mockImplementation((id, action) => real(id, async () => { await gate; return action(); }));
     const headers = { host: `127.0.0.1:${f.app.ctx.settings.port}` };
-    const cleaning = server.inject({ method: 'POST', url: `/api/tickets/${f.ticket.id}/worktree-cleanup?refresh=1`, headers, payload: { confirm: true, checkouts: assessment.checkouts } });
+    const cleaning = server.inject({ method: 'POST', url: `/api/tickets/${f.ticket.id}/worktree-cleanup?refresh=1`, headers, payload: { confirm: true, ticketIds: assessment.ticketIds, checkouts: assessment.checkouts } });
     const running = cleaning.then(value => value);
     await vi.waitFor(() => expect(f.app.cleanupProjects.has(f.ticket.project_id)).toBe(true));
     await expect(real(f.ticket.project_id, async () => true)).rejects.toThrow(/busy/);
@@ -229,6 +286,26 @@ test('primary and default-branch checkouts cannot be selected for cleanup', asyn
     expect((await cleanupTicketWorktrees(f.app, f.ticket.id, assessment.checkouts)).results[0]?.status).toBe('blocked');
     expect(await git(f.workspace, 'branch', '--show-current')).toBe('main');
   } finally {
+    await f.close();
+  }
+});
+
+test('runtime rejects removal when shared tickets change after desktop scope validation', async () => {
+  const f = await fixture();
+  const server = await createHttpServer(f.app);
+  try {
+    const assessment = await assessTicketCleanup(f.app, f.ticket.id);
+    f.app.tickets.create(f.ticket.project_id, { title: 'TEST_new_peer', branch: f.ticket.branch, status: 'done' }, [], 'ticket');
+    const response = await server.inject({
+      method: 'POST', url: `/api/tickets/${f.ticket.id}/worktree-cleanup`,
+      headers: { host: `127.0.0.1:${f.app.ctx.settings.port}` },
+      payload: { confirm: true, ticketIds: assessment.ticketIds, checkouts: assessment.checkouts },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toMatch(/sharing this branch changed/);
+    expect(await fs.stat(f.checkout.path)).toBeTruthy();
+  } finally {
+    await server.close();
     await f.close();
   }
 });

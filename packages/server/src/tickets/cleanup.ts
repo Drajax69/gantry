@@ -15,6 +15,7 @@ export interface CleanupCheckout {
 
 export interface CleanupAssessment {
   ticketId: string;
+  ticketIds: string[];
   checkouts: CleanupCheckout[];
   blockers: string[];
 }
@@ -75,7 +76,8 @@ export async function assessTicketCleanup(app: GantryApp, ticketId: string): Pro
             const evidence = JSON.parse(preview.merge_evidence ?? '{}')[repo.id];
             const proof = evidence?.proof;
             if (proof?.head !== head || proof.path !== tree.path || proof.branch !== ticket.branch) continue;
-            merged = Boolean(await mergedEvidence(repoPath, { head }, { number: evidence.number ?? 0, head, merge: null }, base));
+            const pulls = app.remote.snapshotFor(ticket.project_id, repo.id)?.pullRefs ?? [];
+            merged = Boolean(await mergedEvidence(repoPath, { head }, { number: evidence.number ?? 0, head, merge: null }, base, pulls));
             if (merged) break;
           }
         }
@@ -87,7 +89,7 @@ export async function assessTicketCleanup(app: GantryApp, ticketId: string): Pro
       }
     }
   }
-  return { ticketId, checkouts, blockers };
+  return { ticketId, ticketIds: peers.map(t => t.id).sort(), checkouts, blockers };
 }
 
 /** Reassess each checkout immediately before non-forced Git removal; retain partial results. */

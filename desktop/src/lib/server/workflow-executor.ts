@@ -89,6 +89,18 @@ export function executionFor(id: string): Execution | null {
     throw e;
   }
 }
+
+/** Paused/waiting history is safe only after its worker and running attempts have stopped. */
+export function executionHasWork(id: string): boolean {
+  if (engine.active.has(id)) return true;
+  const run = engine.runs.get(id) ?? executionFor(id);
+  return Boolean(run && (
+    run.state === 'running'
+    || run.attempts.some(attempt => attempt.state === 'running')
+    || Object.values(run.steps).includes('running')
+  ));
+}
+
 function save(run: Execution) {
   // Also serves as the review picker's optimistic revision, including saves in the same millisecond.
   run.updatedAt = Math.max(Date.now(), run.updatedAt + 1);

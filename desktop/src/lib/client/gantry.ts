@@ -172,6 +172,7 @@ async function request<T>(route: string, method: string, body?: unknown): Promis
 
 export interface CleanupAssessment {
   ticketId: string;
+  ticketIds: string[];
   checkouts: { repositoryId: string; path: string; head: string; eligible: boolean; reason: string }[];
   blockers: string[];
 }

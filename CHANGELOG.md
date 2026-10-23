@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Guard merged-worktree cleanup against workflow activity on every ticket sharing a branch, allow idle paused/waiting workflows, and revalidate nested squash merges through cached parent PRs.
 - Show full individual workflow graphs and current stages in the desktop Graph view, limited to in-progress tickets.
 - Show OpenCode permission requests in the workflow's Allow and retry panel, persist exact provider-specific grants, and apply them on retry without changing Claude permissions. Existing logged permission failures gain the same approval panel.
 - Apply checkout-scoped OpenCode session migration to workflow stages and coordinators as well as review chats. Legacy or mismatched sessions start fresh with available context preserved; empty CLI responses produce explicit errors.

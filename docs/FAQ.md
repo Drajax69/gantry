@@ -10,6 +10,8 @@ Only when you explicitly confirm **Clean worktrees** on a Done ticket in the des
 
 Cleanup requires a clean, unlocked checkout inside the configured worktree root and merge evidence for its current HEAD against the local remote-default ref. Primary/default-branch checkouts and external worktrees are protected. All tickets sharing the branch must be Done, with no attached/queued agent work, active workflow or preview services. Close interactive agents before confirming; Gantry cannot track arbitrary external shell processes. If merge evidence is missing, refresh the workspace's merge status before retrying. Cleanup itself is local-only and does not fetch or call GitHub.
 
+Paused or waiting workflows do not need to finish their graphs before cleanup, provided their workers and running attempts/steps have stopped. Gantry checks workflow activity on every ticket sharing the branch. Nested squash merges are reverified through cached parent PRs; refresh merge status if that parent data is unavailable.
+
 Each checkout reports its own result, so successful removals survive a failure in another repository. Reopen the cleanup dialog for a fresh assessment after addressing a blocker. Archiving previews and deleting ticket cards still keep worktree files; cleanup is a separate action.
 
 ## Does Gantry run on Windows?

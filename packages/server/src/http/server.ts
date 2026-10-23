@@ -285,10 +285,14 @@ export async function createHttpServer(app: GantryApp) {
   });
   fastify.post('/api/tickets/:ticketId/worktree-cleanup', async request => {
     const { ticketId } = request.params as { ticketId: string };
-    const body = request.body as { confirm?: unknown; checkouts?: unknown } | undefined;
+    const body = request.body as { confirm?: unknown; checkouts?: unknown; ticketIds?: unknown } | undefined;
     if (body?.confirm !== true) throw new Error('Worktree removal requires confirm: true.');
     const ticket = app.tickets.get(ticketId);
     if (!ticket) throw Object.assign(new Error('Ticket not found.'), { statusCode: 404 });
+    const peers = app.tickets.all(ticket.project_id).filter(t => t.branch === ticket.branch).map(t => t.id).sort();
+    if (!Array.isArray(body.ticketIds) || JSON.stringify(body.ticketIds) !== JSON.stringify(peers)) {
+      throw Object.assign(new Error('Tickets sharing this branch changed. Review a fresh cleanup assessment.'), { statusCode: 409 });
+    }
     if ([...preparing.keys()].some(id => app.tickets.get(id)?.project_id === ticket.project_id)) throw Object.assign(new Error('Worktree preparation is in progress. Retry shortly.'), { statusCode: 409 });
     app.cleanupProjects.add(ticket.project_id);
     try {
