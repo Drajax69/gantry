@@ -3,13 +3,15 @@ import { conversationFor, publicConversation } from "@/lib/server/ticket-convers
 import { syncGantrySpaces } from "@/lib/server/spaces";
 import { ticketOutputs } from "@/lib/server/ticket-outputs";
 import type { StatusView } from "@/lib/client/gantry";
+import { pendingFor, queuedFor, checkoutsHaveAgents, withIdleCheckouts } from "@/lib/server/chats";
+import { withLock } from "@/lib/server/exec";
 
 /** Same-origin bridge to the local Gantry service; never accepts an upstream URL. */
 
 type Context = { params: Promise<{ path: string[] }> };
 const reads = [
   /^api\/projects\/[\w-]+\/(chat-prompt|workflow|workflow-templates)$/,
-  /^api\/tickets\/[\w-]+\/workflow$/,
+  /^api\/tickets\/[\w-]+\/(workflow|worktree-cleanup)$/,
   /^api\/(status|version)$/,
   /^logs\/(run\/[\w-]+|preview\/[\w-]+\/[\w-]+)$/,
   /^artifacts\/[\w-]+\/[\w.-]+$/,
@@ -19,7 +21,7 @@ const writes = [
   /^api\/projects\/[\w-]+\/(refresh|tickets|chat-prompt|workflow|workflow-templates)$/,
   /^api\/projects\/[\w-]+\/workflow-templates\/[\w-]+$/,
   /^api\/projects\/[\w-]+\/tickets\/reorder$/,
-  /^api\/tickets\/[\w-]+\/(update|outcome|awaiting-review|delete|prompt|start|handoff|resume|workflow|workflow-progress)$/,
+  /^api\/tickets\/[\w-]+\/(update|outcome|awaiting-review|delete|prompt|start|handoff|resume|workflow|workflow-progress|worktree-cleanup)$/,
   /^api\/previews\/[\w-]+\/(pause|resume|restart|retry-dependencies|archive|restore|environment)$/,
 ];
 
@@ -55,15 +57,46 @@ async function proxy(req: Request, context: Context) {
     }
     const workflowMutation = /^api\/tickets\/([\w-]+)\/(workflow|workflow-progress|start|resume|handoff)$/.exec(route);
     if (req.method === 'POST' && workflowMutation && executionFor(workflowMutation[1])) return Response.json({error:'This ticket is managed by workflow automation. Use its execution controls.'},{status:409});
-    const response = await fetch(new URL(`/${route}`, upstream), {
-      method: req.method,
-      headers: { "Content-Type": "application/json", Origin: upstream.origin },
-      body,
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(60000),
-    });
+    const cleanup = /^api\/tickets\/([\w-]+)\/worktree-cleanup$/.exec(route);
+    const selectedPaths: string[] = [];
+    if (cleanup && req.method === 'POST') {
+      const selected = JSON.parse(body || '{}').checkouts;
+      if (Array.isArray(selected)) {
+        for (const checkout of selected) if (typeof checkout?.path === 'string') selectedPaths.push(checkout.path);
+      }
+    }
+    const cleanupBlocker = () => {
+      if (!cleanup) return null;
+      const run = executionFor(cleanup[1]);
+      if (run && (run.state !== 'complete' || run.attempts.some(a => a.state === 'running'))) return 'Finish workflow execution before cleaning its worktrees.';
+      const target = `ticket/${cleanup[1]}`;
+      if (pendingFor(target) || queuedFor(target).length) return 'Wait for the ticket agent to finish before cleanup.';
+      return null;
+    };
+    const forward = async () => {
+      const blocker = cleanupBlocker();
+      if (req.method === 'POST' && blocker) return Response.json({ error: blocker }, { status: 409 });
+      return fetch(new URL(`/${route}`, upstream), {
+        method: req.method,
+        headers: { "Content-Type": "application/json", Origin: upstream.origin },
+        body,
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(60000),
+      });
+    };
+    const response = cleanup && req.method === 'POST'
+      ? await withLock(`workflow:${cleanup[1]}`, () => withLock(`ticket-conversation:${cleanup[1]}`, async () => {
+        if (checkoutsHaveAgents(selectedPaths)) return Response.json({ error: 'Wait for checkout agents to finish before cleanup.' }, { status: 409 });
+        return withIdleCheckouts(selectedPaths, forward);
+      }))
+      : await forward();
     let responseBody: BodyInit | null = response.body;
+    if (cleanup && req.method === 'GET' && response.ok) {
+      const assessment = await response.json();
+      const blocker = cleanupBlocker() || (checkoutsHaveAgents(assessment.checkouts.map((c: { path: string }) => c.path)) ? 'Wait for checkout agents to finish before cleanup.' : null);
+      responseBody = JSON.stringify({ ...assessment, blockers: [...assessment.blockers, ...(blocker ? [blocker] : [])] });
+    }
     const workflowRead = /^api\/tickets\/([\w-]+)\/workflow$/.exec(route);
     if(req.method==='GET' && workflowRead && response.ok){const execution=executionFor(workflowRead[1]);if(execution){const original=await response.json();responseBody=JSON.stringify({graph:execution.graph,revision:original?.revision??0,states:Object.fromEntries(Object.entries(execution.steps).map(([id,state])=>[id,{state,message:execution.attempts.filter(a=>a.nodeId===id).at(-1)?.summary||''}]))});}}
 
@@ -89,7 +122,8 @@ async function proxy(req: Request, context: Context) {
         "X-Content-Type-Options": "nosniff",
       },
     });
-  } catch {
+  } catch (error) {
+    if ((error as { status?: number }).status === 409) return Response.json({ error: (error as Error).message }, { status: 409 });
     return Response.json({ error: "Gantry is unavailable. Reopen the desktop app, or start Gantry and retry." }, { status: 503 });
   }
 }

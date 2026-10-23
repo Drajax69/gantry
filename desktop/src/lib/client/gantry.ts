@@ -170,7 +170,21 @@ async function request<T>(route: string, method: string, body?: unknown): Promis
   return payload;
 }
 
+export interface CleanupAssessment {
+  ticketId: string;
+  checkouts: { repositoryId: string; path: string; head: string; eligible: boolean; reason: string }[];
+  blockers: string[];
+}
+
+export interface CleanupResult {
+  results: { repositoryId: string; path: string; status: 'removed' | 'blocked' | 'failed'; reason: string }[];
+  assessment: CleanupAssessment;
+}
+
 export const gantry = {
+  assessCleanup: (id: string): Promise<CleanupAssessment> => request(`/api/tickets/${id}/worktree-cleanup`, 'GET'),
+  cleanupWorktrees: (id: string, checkouts: CleanupAssessment['checkouts']): Promise<CleanupResult> =>
+    request(`/api/tickets/${id}/worktree-cleanup`, 'POST', { confirm: true, checkouts }),
   workspaceWorkflowTemplates: (id: string): Promise<{ id: string; name: string; graph: Workflow }[]> => request(`/api/projects/${id}/workflow-templates`, 'GET'),
   saveWorkspaceWorkflowTemplate: (id: string, name: string, graph: Workflow, templateId?: string): Promise<{ id: string; name: string; graph: Workflow }> =>
     request(`/api/projects/${id}/workflow-templates${templateId ? `/${templateId}` : ''}`, 'POST', { name, graph }),

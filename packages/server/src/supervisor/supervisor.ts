@@ -78,6 +78,16 @@ export class Supervisor {
   private readonly allocator: PortAllocator;
   private readonly ticking = new Set<string>();
 
+  async withIdleProject<T>(projectId: string, action: () => Promise<T>): Promise<T> {
+    if (this.ticking.has(projectId)) throw Object.assign(new Error('Preview discovery is busy. Retry cleanup shortly.'), { statusCode: 409 });
+    this.ticking.add(projectId);
+    try {
+      return await action();
+    } finally {
+      this.ticking.delete(projectId);
+    }
+  }
+
   constructor(
     private readonly ctx: AppContext,
     private readonly db: Database,

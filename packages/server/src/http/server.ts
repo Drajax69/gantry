@@ -18,6 +18,7 @@ import { readPreviewLoginEmail } from '../supervisor/preview-login.js';
 import { initializeWorkspace } from '../projects/initialize.js';
 import { ticketWorkspace } from '../tickets/workspace.js';
 import { TicketError, validateTicketInput, type TicketInput } from '../tickets/store.js';
+import { assessTicketCleanup, cleanupTicketWorktrees } from '../tickets/cleanup.js';
 
 /**
  * HTTP API + dashboard host. Routes are grouped by concern in ./routes/*;
@@ -26,6 +27,9 @@ import { TicketError, validateTicketInput, type TicketInput } from '../tickets/s
 
 export async function createHttpServer(app: GantryApp) {
   const fastify = Fastify({ logger: false, bodyLimit: 2_000_000 });
+  const mutations = new Map<string, number>();
+  const mutationProjects = new WeakMap<object, string>();
+  const cleanupReservations = new Set<string>();
 
   // ---- security gate -------------------------------------------------------
   fastify.addHook('onRequest', async (request, reply) => {
@@ -40,6 +44,27 @@ export async function createHttpServer(app: GantryApp) {
 
   fastify.setNotFoundHandler((_request, reply) => {
     reply.code(404).send({ error: 'Not found' });
+  });
+  fastify.addHook('preHandler', async request => {
+    if (request.method === 'GET') return;
+    const params = request.params as { ticketId?: string; projectId?: string; previewId?: string };
+    const projectId = params.projectId
+      ?? (params.ticketId ? app.tickets.get(params.ticketId)?.project_id : undefined)
+      ?? (params.previewId ? app.supervisor.previewRow(params.previewId)?.project_id : undefined);
+    if (projectId && (cleanupReservations.has(projectId) || app.cleanupProjects?.has(projectId))) throw Object.assign(new Error('Worktree cleanup is in progress. Retry shortly.'), { statusCode: 409 });
+    if (!projectId) return;
+    const cleanup = request.routeOptions.url?.endsWith('/worktree-cleanup');
+    if (cleanup && mutations.get(projectId)) throw Object.assign(new Error('Workspace operations are in progress. Retry cleanup shortly.'), { statusCode: 409 });
+    if (cleanup) cleanupReservations.add(projectId);
+    mutationProjects.set(request, projectId);
+    mutations.set(projectId, (mutations.get(projectId) ?? 0) + 1);
+  });
+  fastify.addHook('onResponse', async request => {
+    const projectId = mutationProjects.get(request);
+    if (projectId) {
+      mutations.set(projectId, Math.max(0, (mutations.get(projectId) ?? 1) - 1));
+      if (request.routeOptions.url?.endsWith('/worktree-cleanup')) cleanupReservations.delete(projectId);
+    }
   });
   fastify.setErrorHandler((error, _request, reply) => {
     const statusCode = (error as { statusCode?: number }).statusCode ?? 400;
@@ -255,6 +280,23 @@ export async function createHttpServer(app: GantryApp) {
   });
 
   const preparing = new Map<string, Promise<unknown>>();
+  fastify.get('/api/tickets/:ticketId/worktree-cleanup', async request => {
+    return assessTicketCleanup(app, (request.params as { ticketId: string }).ticketId);
+  });
+  fastify.post('/api/tickets/:ticketId/worktree-cleanup', async request => {
+    const { ticketId } = request.params as { ticketId: string };
+    const body = request.body as { confirm?: unknown; checkouts?: unknown } | undefined;
+    if (body?.confirm !== true) throw new Error('Worktree removal requires confirm: true.');
+    const ticket = app.tickets.get(ticketId);
+    if (!ticket) throw Object.assign(new Error('Ticket not found.'), { statusCode: 404 });
+    if ([...preparing.keys()].some(id => app.tickets.get(id)?.project_id === ticket.project_id)) throw Object.assign(new Error('Worktree preparation is in progress. Retry shortly.'), { statusCode: 409 });
+    app.cleanupProjects.add(ticket.project_id);
+    try {
+      return await app.supervisor.withIdleProject(ticket.project_id, () => cleanupTicketWorktrees(app, ticketId, body.checkouts));
+    } finally {
+      app.cleanupProjects.delete(ticket.project_id);
+    }
+  });
   fastify.get('/api/tickets/:ticketId/workspace', async request => {
     return ticketWorkspace(app, (request.params as { ticketId: string }).ticketId);
   });

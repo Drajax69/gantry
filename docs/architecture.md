@@ -167,7 +167,15 @@ Reads the legacy preview manager's state directory and produces a complete `gant
 2. **Durable jobs.** Work happens in the queue, not in request handlers: dedupe keys prevent duplicates, leases recover from crashes, attempts are bounded, handlers are idempotent.
 3. **Fast vs slow discovery separation.** Ticket starts use local `git worktree list` only. Fetches, `ls-remote` and `gh` calls live in the remote-sync loop and are additionally bounded by timeouts, so a slow network cannot delay an agent.
 4. **Ownership verification before any signal.** No pid is ever trusted from the database alone: `ownsProcess` re-checks pgid and the command claim via `ps` immediately before `interruptProcessGroup` sends SIGTERM (then SIGKILL after the grace period). Unverifiable processes are reported and left alone.
-5. **Archive, not delete.** Previews are archived (releases their ports, keeps everything else). Gantry never deletes worktrees, never discards uncommitted changes, and never checks a different branch into an existing worktree. Removing a *ticket* removes the card from the board; the branch and worktree stay on disk.
+5. **Archive by default; confirm cleanup.** Previews are archived (releases their ports, keeps everything else). Gantry never discards uncommitted changes or checks a different branch into an existing worktree. Removing a *ticket* removes the card from the board; the branch and worktree stay on disk. A separate confirmed cleanup action can remove clean, merged ticket worktrees while retaining branches and history (see below).
+
+### Confirmed worktree cleanup
+
+`GET /api/tickets/:ticketId/worktree-cleanup` assesses registered checkouts on demand and returns `{ ticketId, checkouts, blockers }`. Each checkout includes its repository ID, path, HEAD, eligibility and reason. `POST` to the same endpoint requires `{ confirm: true, checkouts: [{ repositoryId, path, head }] }` and returns per-checkout `removed`, `blocked` or `failed` results plus a fresh assessment. Caller-supplied paths and HEADs are matched to live discovery before use.
+
+`tickets/cleanup.ts` checks Done status across tickets sharing a branch, active runs/jobs/services, managed-root containment, protected primary/default checkouts, worktree locks, tracked/untracked changes, branch and HEAD identity, and merge evidence against the locally available remote-default ref. Squash/rebase patch verification requires an existing proof matching the current checkout; a stored retirement flag alone never authorizes deletion. Assessment and cleanup perform no network requests. Removal uses `git worktree remove` without force and keeps branches, tickets, evidence and conversation associations. Successfully removed checkout rows are cleared independently, preserving partial progress.
+
+The runtime excludes concurrent workspace mutations and preparation while holding the supervisor's project discovery lock. The desktop bridge uses the workflow and conversation locks and rejects unfinished executions or pending/queued embedded ticket agents. Checkout reservations also exclude running/queued local-review agents and block new review turns during removal. Interactive agents outside Gantry must be closed by the user before confirmation. Discovery, merge completion, preview archival and ticket deletion never invoke cleanup automatically.
 
 ## Where things live
 

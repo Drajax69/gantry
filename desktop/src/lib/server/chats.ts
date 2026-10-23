@@ -26,6 +26,7 @@ interface ChatFile {
 interface Run {
   msg: ChatMessage;
   abort: AbortController;
+  worktree: string;
 }
 
 type Listener = (e: ChatEvent) => void;
@@ -33,10 +34,12 @@ type Listener = (e: ChatEvent) => void;
 const g = globalThis as unknown as {
   __lensListeners?: Map<string, Set<Listener>>;
   __lensRuns?: Map<string, Run>;
+  __lensCleanupPaths?: Set<string>;
 };
 const listeners = (g.__lensListeners ??= new Map());
 const ALL = "*";
 const runs = (g.__lensRuns ??= new Map());
+const cleanupPaths = (g.__lensCleanupPaths ??= new Set());
 /** Questions asked while another answer is running, per target, oldest first. */
 const queues: Map<string, { user: ChatMessage; t: PreparedTarget; agent?: string }[]> = ((g as { __lensQueues?: Map<string, never[]> }).__lensQueues ??= new Map());
 
@@ -87,6 +90,26 @@ export function pendingFor(id: string): ChatMessage | null {
 
 export function queuedFor(id: string): string[] {
   return (queues.get(id) ?? []).map((j) => j.user.id);
+}
+
+export function checkoutsHaveAgents(paths: string[]): boolean {
+  const selected = new Set(paths.map(p => path.resolve(p)));
+  return [...runs.values()].some(run => selected.has(path.resolve(run.worktree)))
+    || [...queues.values()].some(queue => queue.some(job => selected.has(path.resolve(job.t.worktree))));
+}
+
+/** Reserve checkouts synchronously so a local review cannot start during removal. */
+export async function withIdleCheckouts<T>(paths: string[], action: () => Promise<T>): Promise<T> {
+  const selected = [...new Set(paths.map(p => path.resolve(p)))];
+  if (selected.some(p => cleanupPaths.has(p)) || checkoutsHaveAgents(selected)) {
+    throw Object.assign(new Error('Wait for checkout agents to finish before cleanup.'), { status: 409 });
+  }
+  selected.forEach(p => cleanupPaths.add(p));
+  try {
+    return await action();
+  } finally {
+    selected.forEach(p => cleanupPaths.delete(p));
+  }
 }
 
 export function listRecent(limit = 30): RecentItem[] {
@@ -205,6 +228,7 @@ export interface SendInput {
 
 /** Record the user's question and answer it, after any answer already running. Returns the user message. */
 export function send(t: PreparedTarget, input: SendInput): ChatMessage {
+  if (cleanupPaths.has(path.resolve(t.worktree))) throw Object.assign(new Error('Worktree cleanup is in progress. Retry shortly.'), { status: 409 });
   const id = t.info.id;
   const chat: ChatFile = loadChat(id) ?? {
     targetId: id, title: t.info.title, updatedAt: Date.now(), sessions: {}, messages: [],
@@ -262,7 +286,7 @@ function answer(t: PreparedTarget, user: ChatMessage, agentId?: string) {
     id: randomUUID(), role: "assistant", anchor, text: "", ts: Date.now(), replyTo: user.id, thread: user.thread, tools: [], agent: agent.name,
   };
   const abort = new AbortController();
-  runs.set(id, { msg, abort });
+  runs.set(id, { msg, abort, worktree: t.worktree });
   emit(id, { type: "start", msg });
 
   const prev = chat.sessions?.[agent.id];

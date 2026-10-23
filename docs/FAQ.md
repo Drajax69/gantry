@@ -6,7 +6,11 @@ No — only processes and ports are isolated. Each preview runs its own services
 
 ## Does Gantry delete worktrees?
 
-No. Gantry archives previews: services are stopped, ports are released, and the row is retained and restorable. It never deletes a worktree, never discards uncommitted changes, and never checks a different branch into an existing worktree. Removing a ticket from the board removes the card only — the branch and its worktree stay on disk until you clean them up with `git worktree remove` yourself.
+Only when you explicitly confirm **Clean worktrees** on a Done ticket in the desktop board. Gantry shows eligible checkout folders and reasons for keeping others, then repeats local Git checks before running non-forced `git worktree remove`. Ignored files such as build output and installed dependencies inside a removed checkout are removed too. Branches, tickets, PRs, artifacts and conversation history are retained.
+
+Cleanup requires a clean, unlocked checkout inside the configured worktree root and merge evidence for its current HEAD against the local remote-default ref. Primary/default-branch checkouts and external worktrees are protected. All tickets sharing the branch must be Done, with no attached/queued agent work, active workflow or preview services. Close interactive agents before confirming; Gantry cannot track arbitrary external shell processes. If merge evidence is missing, refresh the workspace's merge status before retrying. Cleanup itself is local-only and does not fetch or call GitHub.
+
+Each checkout reports its own result, so successful removals survive a failure in another repository. Reopen the cleanup dialog for a fresh assessment after addressing a blocker. Archiving previews and deleting ticket cards still keep worktree files; cleanup is a separate action.
 
 ## Does Gantry run on Windows?
 
