@@ -22,6 +22,8 @@ On macOS, the first Open chat for a Codex ticket also prefills the native compos
 
 ## Workspace graphs
 
+The Tickets **Graph** view shows each in-progress ticket's complete workflow, dependencies, step states, and current stage. Backlog and Done tickets stay on the Board. Search by title or branch, inspect stages with the graph controls, and use the ticket card for details, chat, preview, and review. Graphs refresh every two seconds; tickets without a workflow snapshot show an explicit empty state.
+
 **Workspace graph** in the sidebar defines the path for future tickets. The default is Plan → Implement → Test → Create Playwright trace. Select a step to edit its name, instructions, owner, and dependencies. Steps sharing dependencies can run in parallel; a join waits for every dependency. User decision steps appear as **Waiting on you** when ready. Shared starting instructions remain available inside the graph editor.
 
 New tickets store an independent graph snapshot in SQLite. Workspace edits do not change those snapshots. **Edit graph** in ticket details changes only pending steps; started steps keep their definition and progress. Older tickets can explicitly **Copy workspace graph**. Graph updates use revisions to reject stale edits. Saving a workspace graph preserves the rest of `gantry.yaml`.
