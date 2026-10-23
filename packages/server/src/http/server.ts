@@ -1,6 +1,6 @@
 import { ticketServiceScopes } from '@gantry/shared';
 import { ZodError } from 'zod';
-import { workspaceWorkflow, saveWorkspaceWorkflow } from '../projects/workflow.js';
+import { workspaceWorkflow, saveWorkspaceWorkflow, workspaceWorkflowTemplates, saveWorkspaceWorkflowTemplate } from '../projects/workflow.js';
 import { ticketWorkflow, changeStep, replaceGraph, saveTicketWorkflow } from '../tickets/workflow.js';
 import { workspacePrompt, saveWorkspacePrompt } from '../projects/prompt.js';
 import fs from 'node:fs';
@@ -109,6 +109,17 @@ export async function createHttpServer(app: GantryApp) {
     if (!ticket) throw Object.assign(new Error('Ticket not found.'), { statusCode: 404 });
     return ticketWorkflow(ticket);
   });
+  fastify.get('/api/projects/:projectId/workflow-templates', async request => {
+    return workspaceWorkflowTemplates(await app.loadProjectById((request.params as { projectId: string }).projectId));
+  });
+  fastify.post('/api/projects/:projectId/workflow-templates', async (request, reply) => {
+    const template = saveWorkspaceWorkflowTemplate(await app.loadProjectById((request.params as { projectId: string }).projectId), request.body);
+    return reply.code(201).send(template);
+  });
+  fastify.post('/api/projects/:projectId/workflow-templates/:templateId', async request => {
+    const { projectId, templateId } = request.params as { projectId: string; templateId: string };
+    return saveWorkspaceWorkflowTemplate(await app.loadProjectById(projectId), request.body, templateId);
+  });
   for (const action of ['workflow', 'workflow-progress'] as const) {
     fastify.post(`/api/tickets/:ticketId/${action}`, async request => {
       const ticket = app.tickets.get((request.params as { ticketId: string }).ticketId);
@@ -171,7 +182,8 @@ export async function createHttpServer(app: GantryApp) {
   fastify.post('/api/projects/:projectId/tickets', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
     const project = await app.loadProjectById(projectId);
-    const ticket = app.tickets.create(projectId, ticketScopeInput(request.body as TicketInput, project.config.services, true), project.config.services.map((service) => service.id), project.config.project.branchPrefix, workspaceWorkflow(project));
+    const templateId = (request.body as { workflowTemplateId?: unknown })?.workflowTemplateId;
+    const ticket = app.tickets.create(projectId, ticketScopeInput(request.body as TicketInput, project.config.services, true), project.config.services.map((service) => service.id), project.config.project.branchPrefix, workspaceWorkflow(project, templateId));
     return reply.code(201).send(ticket);
   });
 

@@ -28,6 +28,7 @@ test('ticket graph shares actions and refreshes progress without losing navigati
     if (url.pathname === '/api/agents') return json({ agents: [], current: null });
     if (url.pathname === '/api/stage-permissions') return json({ allow: [] });
     if (url.pathname === '/api/workflow-execution') return json(null);
+    if (url.pathname.endsWith('/workflow-templates')) return json([{ id: 'default', name: 'Default', graph: tickets[0].workflow.graph }]);
     if (url.pathname === '/api/ticket-chat') {
       if (req.postDataJSON().action === 'open') opens.push(req.postDataJSON().ticketId);
       return json({ conversation: tickets[0].conversation });

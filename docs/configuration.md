@@ -39,6 +39,7 @@ automatic graph manually, copy the `workflow` section from
 | `scopes` | array | `[]` | Deprecated legacy categories; accepted for compatibility, no longer offered as choices. |
 | `agents` | array | `[]` | Per-agent overrides (`binary`, extra `args`). |
 | `workflow` | object | Starter graph, automation off when omitted | Stage instructions, positions, connections, and automatic execution. New-workspace setup writes the automatic starter explicitly. |
+| `workflowTemplates` | array | `[]` | Named alternative graphs (`id`, `name`, `graph`) available when creating tickets. |
 | `safety` | object | see below | Validation policy rendered into prompts. |
 
 Ticket scopes are the service IDs declared in `services` in `gantry.yaml`. The ticket form offers checkboxes and allows multiple selections; new tickets select all current services by default. Clear all selections for workspace-wide work. Workspaces with no services offer no scope choices.
@@ -357,6 +358,45 @@ Use the variable name your application reads; Gantry does not assume a frontend 
 Managed `runtime: node` services run with Node watch mode by default. Changes to the entry or imported modules restart the service process on its existing port; logs are retained. This includes modules loaded through the checkout's TypeScript loader. Set `watch: false` on a Node service to opt out. Arbitrary files read as data and newly created, not-yet-imported modules are not guaranteed to trigger a restart.
 
 For `runtime: command`, use the framework's development command or add `--watch --watch-preserve-output` to a Node command. Gantry does not wrap arbitrary commands in a second watcher. Vite already reloads its frontend independently. Backend restarts briefly interrupt requests and reset in-memory server state; they do not reload the browser page.
+
+## Workspace graph templates
+
+Workspaces can keep multiple graphs. In **Workspace graph**, select a template to
+edit it, or use **Add as workspace graph template** to save the current draft under
+a new name. The same button in a ticket's **Edit graph** saves its current draft,
+including unsaved graph edits, without changing the ticket or copying its progress.
+Shared instructions remain workspace-wide.
+
+When creating a ticket, choose **Workspace graph template**. The ticket receives
+an independent snapshot: later template edits affect only future tickets. The
+**Default** graph remains in `workflow`; older clients and requests without a
+selection continue to use it. Alternative templates live in `workflowTemplates`:
+
+```yaml
+workflowTemplates:
+  - id: quick-fix
+    name: Quick fix
+    graph:
+      autoStart: false
+      nodes:
+        - id: implement
+          label: Implement
+          kind: agent
+          instructions: Implement and verify the requested fix.
+          dependsOn: []
+```
+
+Template IDs must be unique lowercase alphanumeric/hyphen strings (up to 80
+characters); `default` is reserved. Names must be nonempty, unique ignoring case,
+and at most 80 characters; **Default** is reserved. A workspace supports up to 100
+named alternatives. Graphs use the same validation as `workflow`.
+
+Runtime API: `GET /api/projects/:projectId/workflow-templates` lists the default
+and alternatives. `POST` to that collection with `{ name, graph }` creates an
+alternative with a generated ID; `POST` to `.../workflow-templates/:templateId`
+updates an existing alternative. Ticket creation accepts `workflowTemplateId`;
+unknown selections are rejected before creating a ticket. Existing `workflow`
+endpoints continue reading and writing the default graph.
 
 ## Copy a workspace graph
 

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 let tickets = [];
 let workspaceGraph = { nodes: [{ id: 'plan', label: 'Plan', kind: 'agent', instructions: '', dependsOn: [] }] };
+let workspaceTemplates = [];
 let workspacePrompt = 'Implement ${ticket.title} in the prepared worktrees.';
 const project = { id: 'fixture', name: 'Fixture workspace', workspace: '/fixture/workspace', defaultAgent: 'generic', scopes: [], services: [{ id: 'frontend', repository: 'frontend' }], environments: [], agents: [{ id:'generic', capabilities:{ available:true,label:'Test agent' } }] };
 let overrides = null;
@@ -17,10 +18,27 @@ const server = http.createServer(async (req, res) => {
   let raw=''; for await (const chunk of req) raw+=chunk;
   const body = raw ? JSON.parse(raw) : {};
   if (req.url === '/api/projects/fixture/workflow') { if (req.method === 'POST') workspaceGraph = body; return send(workspaceGraph); }
+  if (req.url === '/api/projects/fixture/workflow-templates' && req.method === 'GET') {
+    return send([{ id: 'default', name: 'Default', graph: workspaceGraph }, ...workspaceTemplates]);
+  }
+  if (req.url?.startsWith('/api/projects/fixture/workflow-templates') && req.method === 'POST') {
+    const id = req.url.split('/')[5];
+    const name = body.name?.trim();
+    if (!name || name.toLowerCase() === 'default' || workspaceTemplates.some(template => template.id !== id && template.name.toLowerCase() === name.toLowerCase())) {
+      return send({ error: 'Duplicate or invalid graph template name' }, 400);
+    }
+
+    const template = { id: id ?? `template-${workspaceTemplates.length + 1}`, name, graph: body.graph };
+    if (id) workspaceTemplates = workspaceTemplates.map(existing => existing.id === id ? template : existing);
+    else workspaceTemplates.push(template);
+    return send(template, id ? 200 : 201);
+  }
   if (req.url === '/api/projects/fixture/chat-prompt') { if (req.method === 'POST') workspacePrompt=body.prompt; return send({prompt:workspacePrompt}); }
   if (req.url === "/__fixture") { overrides = body.status ?? null; return send({ok:true}); }
   if (req.url === '/api/projects/fixture/tickets') {
-    const ticket = { ...body,id:'ticket-1',projectId:'fixture',status:'backlog',branch:'ticket/review',run:null,pullRequests:[],artifacts:[],workflow:{graph:structuredClone(workspaceGraph),revision:0,states:Object.fromEntries(workspaceGraph.nodes.map(n=>[n.id,{state:'pending',message:''}]))} };
+    const graph = body.workflowTemplateId && body.workflowTemplateId !== 'default' ? workspaceTemplates.find(template => template.id === body.workflowTemplateId)?.graph : workspaceGraph;
+    if (!graph) return send({ error: 'Workspace graph template not found.' }, 400);
+    const ticket = { ...body,id:'ticket-1',projectId:'fixture',status:'backlog',branch:'ticket/review',run:null,pullRequests:[],artifacts:[],workflow:{graph:structuredClone(graph),revision:0,states:Object.fromEntries(graph.nodes.map(n=>[n.id,{state:'pending',message:''}]))} };
     tickets = [ticket]; return send(ticket);
   }
   if (['/api/tickets/ticket-1/prepare', '/api/tickets/ticket-1/workspace'].includes(req.url)) {
@@ -40,4 +58,4 @@ const server = http.createServer(async (req, res) => {
   if (req.url?.startsWith('/api/previews/') || req.url?.endsWith('/refresh')) return send({ok:true});
   send({error:'Unsupported fixture request'},404);
 });
-server.listen(3458,'127.0.0.1');
+server.listen(Number(process.env.GANTRY_E2E_RUNTIME_PORT ?? 3458), '127.0.0.1');

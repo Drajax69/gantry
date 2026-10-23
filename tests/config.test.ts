@@ -39,6 +39,22 @@ describe('parseProjectConfig', () => {
     assert.equal(config.safety.testRecordPrefix, 'TEST_');
     assert.equal(config.safety.manualTestFile, 'manual-test-needed.md');
     assert.deepEqual(config.scopes, []);
+    assert.deepEqual(config.workflowTemplates, []);
+  });
+
+  test('validates unique named graph templates and reserves the default identity', () => {
+    const graph = { nodes: [], edges: [], autoStart: false };
+    const template = { id: 'quick-fix', name: 'Quick fix', graph };
+    const parse = (workflowTemplates: unknown[]) => parseProjectConfig({ ...validDocument, workflowTemplates });
+
+    assert.equal(parse([template]).ok, true);
+    assert.equal(parse([template, { ...template, name: 'Another name' }]).ok, false);
+    assert.equal(parse([template, { ...template, id: 'another', name: ' QUICK FIX ' }]).ok, false);
+    assert.equal(parse([{ ...template, id: 'default' }]).ok, false);
+    assert.equal(parse([{ ...template, name: 'DEFAULT' }]).ok, false);
+    assert.equal(parse([{ ...template, id: '../outside' }]).ok, false);
+    assert.equal(parse([{ ...template, graph: { nodes: [], edges: [], autoStart: true } }]).ok, false);
+    assert.equal(parse(Array.from({ length: 101 }, (_, index) => ({ id: `graph-${index}`, name: `Graph ${index}`, graph }))).ok, false);
   });
 
   test('rejects a wrong apiVersion with a helpful message', () => {

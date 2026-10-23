@@ -20,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Support named workspace graph templates, choose a graph when creating a ticket, and save ticket graph drafts as reusable templates.
+
 - Show cached pull request status icons on desktop ticket cards, graph nodes and ticket details.
 
 - Export workspace graphs as JSON and import them into another workspace for review before saving.

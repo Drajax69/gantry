@@ -64,6 +64,7 @@ test('service scope checkboxes support create, edit, unavailable services and em
     if (pathname === '/api/gantry/api/status') return json({ projects: [project], tickets, previews: [], pulls: [], jobs: [] });
     if (pathname === '/api/agents') return json({ agents: [], current: null });
     if (pathname === '/api/spaces') return json({ spaces: [], current: null });
+    if (pathname.endsWith('/workflow-templates')) return json([{ id: 'default', name: 'Default', graph: { nodes: [], edges: [] } }]);
     if (pathname === '/api/gantry/api/projects/scopes/tickets') {
       const input = request.postDataJSON();
       writes.push(input);
@@ -82,7 +83,8 @@ test('service scope checkboxes support create, edit, unavailable services and em
   await page.goto('/');
   await page.getByRole('button', { name: 'New ticket', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('combobox')).toHaveCount(0);
+  await expect(dialog.getByRole('combobox', { name: 'Workspace graph template', exact: true })).toHaveCount(1);
+  await expect(dialog.getByRole('combobox', { name: 'Scope', exact: true })).toHaveCount(0);
   await expect(dialog.getByRole('checkbox')).toHaveCount(3);
   await expect(dialog.getByRole('checkbox', { name: 'web', exact: true })).toBeChecked();
   await dialog.getByLabel('Title', { exact: true }).fill('TEST_service_scope_ticket');

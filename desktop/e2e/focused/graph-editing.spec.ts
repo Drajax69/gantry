@@ -13,6 +13,7 @@ async function fixture(page: Page, running = false) {
     if (url.pathname === '/api/agents/models') return json({ models: [] });
     if (url.pathname === '/api/stage-permissions') return json({ allow: [], common: [] });
     if (url.pathname === '/api/workflow-execution') return json(null);
+    if (url.pathname.endsWith('/workflow-templates')) return json([{ id: 'default', name: 'Default', graph }]);
     if (url.pathname.endsWith('/chat-prompt')) {
       if (req.method() === 'POST') prompt = req.postDataJSON().prompt;
       return json({ prompt });
