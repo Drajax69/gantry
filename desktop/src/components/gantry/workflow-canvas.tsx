@@ -231,13 +231,15 @@ export function WorkflowCanvas({
   portable = false,
   templateProjectId,
   onTemplateAdded,
+  onChange,
 }: {
   initial: Workflow;
   draftKey?: string;
   portable?: boolean;
   templateProjectId?: string;
   onTemplateAdded?: () => Promise<void>;
-  onSave: (graph: Workflow) => Promise<void>;
+  onChange?: (graph: Workflow) => void;
+  onSave?: (graph: Workflow) => Promise<void>;
   onCancel?: () => void;
   header?: ReactNode;
 }) {
@@ -272,10 +274,14 @@ export function WorkflowCanvas({
   const selectedNode = nodes.find((n) => n.id === selected);
   const selectedEdge = edges.find((e) => e.id === edgeId);
   const dirty = JSON.stringify(graph) !== saved;
-  const edits = useUnsavedGraph(dirty, () => { if (draftKey) sessionStorage.removeItem(draftKey); });
+  const edits = useUnsavedGraph(dirty && !onChange, () => { if (draftKey) sessionStorage.removeItem(draftKey); });
   const edgeEdits = useUnsavedGraph(!!selectedEdge && edgeLabel !== selectedEdge.label);
   const width = Math.max(1400, ...Object.values(positions).map((p) => p.x + 400));
   const height = Math.max(800, ...Object.values(positions).map((p) => p.y + 300));
+  useEffect(() => {
+    onChange?.(graph);
+  }, [graph, onChange]);
+
   useEffect(() => {
     if (draftKey) {
       if (dirty) sessionStorage.setItem(draftKey, JSON.stringify(graph));
@@ -373,7 +379,7 @@ export function WorkflowCanvas({
     setBusy(true);
     setError('');
     try {
-      await onSave(graph);
+      await onSave?.(graph);
       edits.markSaved();
       if (draftKey) sessionStorage.removeItem(draftKey);
       setSaved(JSON.stringify(graph));
@@ -456,9 +462,11 @@ export function WorkflowCanvas({
               Cancel
             </Button>
           )}
-          <Button size="sm" disabled={busy || !dirty} onClick={() => void save()}>
-            {busy ? 'Saving…' : dirty ? 'Save graph' : 'Saved'}
-          </Button>
+          {onSave && (
+            <Button size="sm" disabled={busy || !dirty} onClick={() => void save()}>
+              {busy ? 'Saving…' : dirty ? 'Save graph' : 'Saved'}
+            </Button>
+          )}
         </div>
       </div>
       {templateSaved && <p role="status" className="px-5 py-2 text-sm">Workspace graph template added.</p>}

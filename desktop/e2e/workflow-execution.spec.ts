@@ -51,8 +51,9 @@ test('workspace graph runs separate model-specific chats and corrects without ap
   await page.locator('article').filter({ hasText: 'Automatic fixture' }).getByRole('button').first().click();
   await expect(page.getByText('Automation · complete', { exact: true })).toBeVisible();
   await page.locator('[data-step-id="review"]').click();
-  await page.getByText('Stage history · 2 attempts', { exact: true }).click();
-  await expect(page.getByText('Fix fixture edge case', { exact: true })).toBeVisible();
+  const stageHistory = page.getByRole('group').filter({ hasText: 'Stage history · 2 attempts' });
+  await stageHistory.getByText('Stage history · 2 attempts', { exact: true }).click();
+  await expect(stageHistory.getByText('Fix fixture edge case', { exact: true })).toBeVisible();
   await page.screenshot({ path: 'e2e/.tmp/workflow-completed-handover.png' });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

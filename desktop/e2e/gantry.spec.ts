@@ -12,6 +12,8 @@ test('Gantry ticket, preview and review workflow stays inside Gantry', async ({ 
   await page.getByLabel('Title', {exact:true}).fill('Draft ticket');
   await page.getByLabel('Notes', {exact:true}).fill('Keep the review in this app.');
   await page.getByRole('button',{name:'Create ticket',exact:true}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.locator('article').filter({ hasText: 'Draft ticket' }).getByRole('button').first().click();
   await expect(page.getByRole('dialog').getByRole('heading',{name:'Draft ticket',exact:true}).first()).toBeVisible();
   await page.getByRole('dialog').getByRole('button',{name:'Edit',exact:true}).click();
   await page.getByLabel('Title',{exact:true}).fill('Test the unified workspace');

@@ -96,7 +96,7 @@ test('service scope checkboxes support create, edit, unavailable services and em
   await dialog.getByRole('button', { name: 'Create ticket', exact: true }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].scopes).toEqual(['web', 'worker']);
-  await page.getByRole('button', { name: 'Close details', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
   project.services = project.services.filter((service) => service.id !== 'worker');
   await page.reload();
   await page.getByRole('button', { name: 'Edit ticket TEST_service_scope_ticket', exact: true }).click();

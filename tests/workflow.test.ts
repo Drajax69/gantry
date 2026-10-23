@@ -176,6 +176,31 @@ test('HTTP graph contract copies templates, rejects stale updates and preserves 
     expect((await selectedGraph()).json().graph).toEqual(fork);
     const invalidSelection = await server.inject({ method: 'POST', url: '/api/projects/test/tickets', headers, payload: { title: 'Invalid template', workflowTemplateId: 'missing' } });
     expect(invalidSelection.statusCode).toBe(400);
+    const draft = workflowSchema.parse({
+      ...DEFAULT_WORKFLOW,
+      autoStart: false,
+      nodes: DEFAULT_WORKFLOW.nodes.map((node, index) => index ? node : {
+        ...node,
+        instructions: 'Ticket-local instructions',
+        providerId: 'example-provider',
+        model: 'example-model',
+        reasoningEffort: 'high',
+        position: { x: 120, y: 240 },
+      }),
+    });
+    const custom = await server.inject({ method: 'POST', url: '/api/projects/test/tickets', headers, payload: { title: 'Ticket-local draft', workflowTemplateId: templateId, graph: draft } });
+    expect(custom.statusCode).toBe(201);
+    const customRun = await server.inject({ method: 'GET', url: `/api/tickets/${custom.json().id}/workflow`, headers });
+    expect(customRun.json().graph).toEqual(draft);
+    expect(customRun.json().revision).toBe(0);
+    expect(Object.values(customRun.json().states)).toEqual(draft.nodes.map(() => ({ state: 'pending', message: '' })));
+    expect(workspaceWorkflow(await loadProject(project.workspace), templateId)).toEqual(DEFAULT_WORKFLOW);
+    const countBefore = app.tickets.all('test').length;
+    for (const graph of [null, { nodes: [] }, { ...draft, entryNodeId: 'missing' }]) {
+      const invalidDraft = await server.inject({ method: 'POST', url: '/api/projects/test/tickets', headers, payload: { title: 'Invalid draft', graph } });
+      expect(invalidDraft.statusCode).toBe(400);
+    }
+    expect(app.tickets.all('test')).toHaveLength(countBefore);
     const saved = await server.inject({ method: 'POST', url: '/api/projects/test/workflow', headers, payload: DEFAULT_WORKFLOW });
     expect(saved.statusCode).toBe(200);
     expect((await get()).json().graph).toEqual(fork);

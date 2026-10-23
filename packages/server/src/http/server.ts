@@ -1,4 +1,4 @@
-import { ticketServiceScopes } from '@gantry/shared';
+import { ticketServiceScopes, workflowSchema } from '@gantry/shared';
 import { ZodError } from 'zod';
 import { workspaceWorkflow, saveWorkspaceWorkflow, workspaceWorkflowTemplates, saveWorkspaceWorkflowTemplate } from '../projects/workflow.js';
 import { ticketWorkflow, changeStep, replaceGraph, saveTicketWorkflow } from '../tickets/workflow.js';
@@ -182,8 +182,17 @@ export async function createHttpServer(app: GantryApp) {
   fastify.post('/api/projects/:projectId/tickets', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
     const project = await app.loadProjectById(projectId);
-    const templateId = (request.body as { workflowTemplateId?: unknown })?.workflowTemplateId;
-    const ticket = app.tickets.create(projectId, ticketScopeInput(request.body as TicketInput, project.config.services, true), project.config.services.map((service) => service.id), project.config.project.branchPrefix, workspaceWorkflow(project, templateId));
+    const body = request.body as TicketInput & { workflowTemplateId?: unknown; graph?: unknown };
+    const template = workspaceWorkflow(project, body?.workflowTemplateId);
+    const graph = body?.graph === undefined ? template : workflowSchema.parse(body.graph);
+
+    const ticket = app.tickets.create(
+      projectId,
+      ticketScopeInput(body, project.config.services, true),
+      project.config.services.map((service) => service.id),
+      project.config.project.branchPrefix,
+      graph,
+    );
     return reply.code(201).send(ticket);
   });
 

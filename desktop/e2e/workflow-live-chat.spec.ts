@@ -1,9 +1,16 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-test.beforeEach(() => { fs.rmSync(path.resolve('e2e/.tmp/home/workflow-runs/ticket-1.json'), {force:true}); });
+test.beforeEach(() => {
+  fs.rmSync(path.resolve('e2e/.tmp/home/workflow-runs/ticket-1.json'), { force: true });
+});
+
 test('a running stage chat opens only after pausing, since herdr resumes the same session', async ({ page, request }) => {
-  const graph = { nodes: [{ id: 'plan', label: 'Plan', kind: 'agent', instructions: 'Plan', dependsOn: [] }] };
+  const graph = {
+    entryNodeId: 'plan',
+    nodes: [{ id: 'plan', label: 'Plan', kind: 'agent', instructions: 'Plan', dependsOn: [] }],
+    edges: [],
+  };
   await request.post('/api/gantry/api/projects/fixture/workflow', { data: graph });
   await request.post('/api/gantry/api/projects/fixture/tickets', { data: { title: 'Live chat fixture' } });
   const actions: string[] = [];
@@ -11,10 +18,20 @@ test('a running stage chat opens only after pausing, since herdr resumes the sam
     if (route.request().method() === 'POST') actions.push(route.request().postDataJSON().action);
     await route.fulfill({
       json: {
+        graph,
         state: 'running',
         message: 'Plan is running.',
         steps: { plan: 'running' },
-        attempts: [{ id: 'attempt', nodeId: 'plan', sessionId: 'live-codex', providerKind: 'codex', state: 'running', output: 'Working…' }],
+        attempts: [{
+          id: 'attempt',
+          nodeId: 'plan',
+          sessionId: 'live-codex',
+          providerKind: 'codex',
+          state: 'running',
+          output: 'Working…',
+          summary: '',
+          startedAt: Date.now(),
+        }],
       },
     });
   });
