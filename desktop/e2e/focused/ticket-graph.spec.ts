@@ -67,7 +67,7 @@ test('ticket graph shares actions and refreshes progress without losing navigati
   await page.getByRole('button', { name: 'New ticket', exact: true }).click();
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill(label + '_created');
   await page.getByRole('button', { name: 'Create ticket', exact: true }).click();
-  await page.getByRole('button', { name: 'Close details', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(graph.locator('[data-ticket-id="created"]')).toBeVisible();
   await page.getByRole('button', { name: 'Board', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Ticket board' }).locator('[data-ticket-id="created"]')).toBeVisible();

@@ -184,7 +184,7 @@ export const gantry = {
   addProject: (workspace: string): Promise<{ ok: boolean; projectId: string }> => request('/api/projects', 'POST', { workspace, initialize: true }),
   removeProject: (projectId: string): Promise<{ ok: boolean }> => request(`/api/projects/${projectId}`, 'DELETE'),
   refreshProject: (projectId: string): Promise<{ ok: boolean }> => request(`/api/projects/${projectId}/refresh`, 'POST', {}),
-  createTicket: (projectId: string, input: { title: string; description?: string; scope?: string; scopes?: string[]; branch?: string; additions?: string | null; workflowTemplateId?: string }): Promise<TicketView> =>
+  createTicket: (projectId: string, input: { title: string; description?: string; scope?: string; scopes?: string[]; branch?: string; additions?: string | null; workflowTemplateId?: string; graph?: Workflow }): Promise<TicketView> =>
     request(`/api/projects/${projectId}/tickets`, 'POST', input),
   updateTicket: (ticketId: string, input: { title?: string; description?: string; status?: string; scope?: string; scopes?: string[]; branch?: string; additions?: string | null }): Promise<TicketView> =>
     request(`/api/tickets/${ticketId}/update`, 'POST', input),
