@@ -54,6 +54,7 @@ test('ticket PR indicators use cached status on the board, graph and details', a
         },
       });
     if (pathname === '/api/agents') return route.fulfill({ json: { agents: [], current: null } });
+    if (pathname === '/api/ticket-chat') return route.fulfill({ json: { conversation: null } });
     // The setup banner checks for herdr and a coding CLI; these fixtures have both.
     if (pathname === '/api/setup') return route.fulfill({ json: { ok: true, herdr: { ok: true, detail: '' }, agent: { ok: true, detail: '' } } });
     unexpected.push(pathname);
@@ -71,6 +72,8 @@ test('ticket PR indicators use cached status on the board, graph and details', a
   groups[0].pulls.frontend = pull(12, false, false, ['Checks failed']);
   await page.getByRole('button', { name: 'Refresh Gantry', exact: true }).click();
   await expect(card.getByLabel('frontend #12 · Blocked', { exact: true })).toHaveAttribute('title', /Checks failed/);
+  ticket.status = 'in_progress';
+  await page.getByRole('button', { name: 'Refresh Gantry', exact: true }).click();
   await page.getByRole('button', { name: 'Graph', exact: true }).click();
   await expect(card.getByLabel('frontend #12 · Blocked', { exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/ticket-pr-graph.png', fullPage: true });

@@ -12,6 +12,17 @@ import { confirmGraphNavigation } from '@/lib/client/unsaved-graph';
 const stateLabel = { pending: 'Not started', running: 'In progress', waiting: 'Waiting on you', done: 'Complete', failed: 'Failed' };
 export type GraphPhase = 'complete' | 'waiting' | 'running' | 'next' | 'empty';
 
+/** Execution owns the current stage, including correction loops and decisions. */
+export function currentWorkflowStage(run?: WorkflowRun | null, execution?: TicketView['execution']) {
+  const currentId = execution?.activeNodeId ?? execution?.decision?.nodeId;
+
+  return run?.graph.nodes.find(n => n.id === currentId)?.id
+    ?? run?.graph.nodes.find(n => ['running', 'waiting', 'failed'].includes(run.states[n.id]?.state))?.id
+    ?? run?.graph.nodes.find(n => run.states[n.id]?.state === 'pending' && n.dependsOn.every(id => run.states[id]?.state === 'done'))?.id
+    ?? run?.graph.nodes.at(-1)?.id
+    ?? '';
+}
+
 /** Where a ticket's graph is: its phase, the stages that phase is about, and how many stages are done. */
 export function graphSummary(run?: WorkflowRun | null, execution?: TicketView['execution']) {
   if (!run) return null;
@@ -60,12 +71,13 @@ export function GraphStatus({ run, execution }: { run?: WorkflowRun | null; exec
 }
 
 /** Layers make forks and joins visible; arbitrary labels never become SVG markup. */
-export function Graph({ graph, run, selected, onSelect, compact = false }: {
+export function Graph({ graph, run, selected, onSelect, compact = false, current }: {
   graph: Workflow;
   run?: WorkflowRun | null;
   selected: string;
   onSelect: (id: string) => void;
   compact?: boolean;
+  current?: string;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
@@ -150,6 +162,7 @@ export function Graph({ graph, run, selected, onSelect, compact = false }: {
               data-step-id={n.id}
               onClick={() => onSelect(n.id)}
               aria-pressed={selected === n.id}
+              aria-current={current === n.id ? 'step' : undefined}
               className={`absolute flex h-[76px] w-[188px] flex-col justify-center rounded-lg border bg-background px-3 text-left text-sm focus-visible:outline-2 focus-visible:outline-ring ${selected === n.id ? 'border-primary ring-1 ring-primary' : ''}`}
               style={{ left: pos.x, top: pos.y }}
             >
@@ -157,6 +170,7 @@ export function Graph({ graph, run, selected, onSelect, compact = false }: {
               <span
                 className={`mt-1 text-xs ${state === 'waiting' || readyHuman ? 'font-semibold text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}`}
               >
+                {current === n.id && <span className="font-semibold text-primary">Current · </span>}
                 {readyHuman ? 'Waiting on you' : state ? stateLabel[state] : n.kind === 'human' ? 'User decision' : 'Agent step'}
               </span>
             </button>
@@ -175,13 +189,8 @@ export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refres
   const [selection, setSelected] = useState('');
   // Follow the current stage until the person chooses a stage to inspect.
   // Pending nodes may precede the active node after a correction loop.
-  const currentId = ticket.execution?.activeNodeId ?? ticket.execution?.decision?.nodeId;
   const selected = (run?.graph.nodes.some(n => n.id === selection) ? selection : undefined)
-    ?? run?.graph.nodes.find(n => n.id === currentId)?.id
-    ?? run?.graph.nodes.find(n => ['running', 'waiting', 'failed'].includes(run.states[n.id]?.state))?.id
-    ?? run?.graph.nodes.find(n => run.states[n.id]?.state === 'pending' && n.dependsOn.every(id => run.states[id]?.state === 'done'))?.id
-    ?? run?.graph.nodes.at(-1)?.id
-    ?? '';
+    ?? currentWorkflowStage(run, ticket.execution);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
