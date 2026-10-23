@@ -18,6 +18,7 @@ import { stageMcpConfig } from './stage-mcp';
 import { sessionOpenInTerminal } from './stage-sessions';
 import { closeDoneTickets } from './terminal-launcher';
 import type { WorkflowRun } from '../../../../packages/shared/src/workflow';
+import { openCodePermissionRequest } from '../opencode-permissions';
 
 const root = path.join(HOME, 'workflow-runs');
 fs.mkdirSync(root, { recursive: true, mode: 0o700 });
@@ -63,7 +64,22 @@ const file = (id: string) => {
 };
 export function executionFor(id: string): Execution | null {
   try {
-    return JSON.parse(fs.readFileSync(file(id), 'utf8'));
+    const run: Execution = JSON.parse(fs.readFileSync(file(id), 'utf8'));
+    // Upgrade permission errors from older builds into the same actionable panel,
+    // without rerunning the agent just to ask for the permission again.
+    const attempt = run.attempts.at(-1);
+    if (run.state === 'waiting' && !run.blocked && attempt?.state === 'failed' && attempt.providerKind === 'opencode') {
+      const request = openCodePermissionRequest(attempt.summary);
+      const node = run.graph.nodes.find(n => n.id === attempt.nodeId);
+      if (request && node) {
+        attempt.denials = request.patterns.map(pattern => ({
+          rule: ruleFor({ provider: 'opencode', tool_name: request.permission, tool_input: { pattern } }),
+          tool: request.permission, detail: pattern,
+        }));
+        noteDenials(run, node, attempt, allowedTools(run.projectId, 'opencode'));
+      }
+    }
+    return run;
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw e;
@@ -169,11 +185,12 @@ function noteDenials(run: Execution, node: { id: string; label: string }, attemp
     return;
   }
   const alreadyAllowed = rules.filter((r) => covers(allowed, r));
-  run.blocked = { nodeId: node.id, rules, alreadyAllowed, at: Date.now() };
+  const provider = attempt.providerKind === 'opencode' ? 'opencode' : 'claude';
+  run.blocked = { nodeId: node.id, provider, rules, alreadyAllowed, at: Date.now() };
   run.message =
     `${node.label} was refused access to ${rules.join(', ')}. Allow them for this workspace to retry the stage.` +
     (alreadyAllowed.length
-      ? ` ${alreadyAllowed.join(', ')} ${alreadyAllowed.length === 1 ? 'is' : 'are'} already allowed in Gantry, so your Claude Code settings or your organization's policy is blocking ${alreadyAllowed.length === 1 ? 'it' : 'them'}: approve in the stage chat instead.`
+      ? ` ${alreadyAllowed.join(', ')} ${alreadyAllowed.length === 1 ? 'is' : 'are'} already allowed in Gantry. Check ${provider === 'opencode' ? 'OpenCode' : 'Claude Code'} settings or provider policy before retrying.`
       : '');
   logEvent(run, 'blocked', run.message, node.id);
 }
@@ -228,7 +245,7 @@ export async function controlExecution(id: string, action: string, nodeId?: stri
         // Decisions made in a stage's own chat count as answers, and "don't ask again" grants carry over.
         const absorbed = await absorbStageChats(run, work.checkouts[0]?.path);
         const granted = importChatGrants(run.projectId, work.checkouts.map((c) => c.path));
-        if (run.blocked && run.blocked.rules.every((r) => covers(allowedTools(run!.projectId), r))) run.blocked = undefined;
+        if (run.blocked && run.blocked.rules.every((r) => covers(allowedTools(run!.projectId, run!.blocked!.provider), r))) run.blocked = undefined;
         if (Object.values(run.steps).includes('waiting'))
           throw new Error(run.decision ? 'Pick one of the choices, or reply, to continue.' : 'Answer the waiting stage before resuming.');
         run.state = 'running';
@@ -464,7 +481,7 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
       logEvent(run, 'blocked', run.message, node.id);
       return;
     }
-    const allowed = agent.kind === 'claude' ? allowedTools(run.projectId) : [];
+    const allowed = agent.kind === 'claude' || agent.kind === 'opencode' ? allowedTools(run.projectId, agent.kind) : [];
     const mcpConfig = agent.kind === 'claude' ? await stageMcpConfig(run.ticketId, work.checkouts.map((c) => c.path)) : undefined;
     attempt = {
       id: randomUUID(),
@@ -544,7 +561,7 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
             if (seen.has(rule)) continue;
             seen.add(rule);
             const input = d.tool_input ?? {};
-            const detail = String(input.command ?? input.url ?? input.query ?? input.file_path ?? '').slice(0, 200);
+            const detail = String(input.command ?? input.url ?? input.query ?? input.file_path ?? input.pattern ?? '').slice(0, 200);
             attempt!.denials.push({ rule, tool: d.tool_name, detail });
           }
         },
@@ -582,7 +599,7 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
     if (!run.routing) run.steps[node.id] = 'failed';
     if (run.state !== 'paused') run.state = 'waiting';
     run.message = message;
-    if (attempt?.denials?.length) noteDenials(run, node, attempt, allowedTools(run.projectId));
+    if (attempt?.denials?.length) noteDenials(run, node, attempt, allowedTools(run.projectId, attempt.providerKind === 'opencode' ? 'opencode' : 'claude'));
   } finally {
     if (timeout) clearTimeout(timeout);
     save(run);

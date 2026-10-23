@@ -12,8 +12,8 @@ export interface RunHooks {
   /** Cost of the whole session so far, when the agent reports one. */
   cost(totalUsd: number): void;
   error(message: string): void;
-  /** Tool calls the agent's own permission system refused (Claude Code `permission_denials`). */
-  denied?(denials: { tool_name: string; tool_input?: Record<string, unknown> }[]): void;
+  /** Tool calls refused or awaiting approval in the provider's permission system. */
+  denied?(denials: { provider?: 'opencode'; tool_name: string; tool_input?: Record<string, unknown> }[]): void;
 }
 
 export interface Turn {
@@ -30,7 +30,7 @@ export interface RunInput {
     workspace?: string;
     reasoningEffort?: string;
     addDirs: string[];
-    /** Workspace allow rules chosen in Gantry (Claude --allowedTools). */
+    /** Workspace allow rules for this provider (Claude --allowedTools or tagged OpenCode grants). */
     allowedTools?: string[];
     /** Extra MCP servers for this stage (Claude --mcp-config file). */
     mcpConfig?: string;

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Show OpenCode permission requests in the workflow's Allow and retry panel, persist exact provider-specific grants, and apply them on retry without changing Claude permissions. Existing logged permission failures gain the same approval panel.
 - Apply checkout-scoped OpenCode session migration to workflow stages and coordinators as well as review chats. Legacy or mismatched sessions start fresh with available context preserved; empty CLI responses produce explicit errors.
 - Authorize OpenCode workflow runs for the configured workspace and ticket checkouts, including resumed sessions. Surface CLI permission waits as actionable stage failures instead of silently remaining running.
 - Bind OpenCode review runs to the PR checkout instead of an inherited launch directory. Older incorrectly scoped review sessions are refreshed with their chat history preserved, and failed tool calls now display their error details.

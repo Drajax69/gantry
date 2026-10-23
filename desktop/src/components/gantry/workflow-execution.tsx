@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import type { TicketView } from '@/lib/client/gantry';
 import type { Execution } from '@/lib/server/workflow-state';
 import { runNow, runTimeline, type NowTone } from '@/lib/client/workflow-timeline';
+import { permissionLabel } from '@/lib/opencode-permissions';
 
 const formatDeliverable = (d: { repo: string; url: string; title: string }) => `${d.repo}:${d.url} ${d.title}`;
 const toneDot: Record<NowTone, string> = {
@@ -260,7 +261,9 @@ export function ExecutionControls({
             <ShieldCheckIcon className="size-4" />
             {blockedNode.label} needs access
           </p>
-          <p className="text-xs text-muted-foreground">Claude Code refused these. Allowing them applies to every Claude stage and stage chat in this workspace.</p>
+          <p className="text-xs text-muted-foreground">{blocked.provider === 'opencode'
+            ? 'OpenCode requested these permissions. Allowing them applies to OpenCode workflow stages in this workspace.'
+            : 'Claude Code refused these. Allowing them applies to every Claude stage and stage chat in this workspace.'}</p>
           <div className="space-y-1">
             {blocked.rules.map((rule) => (
               <label key={rule} className="flex items-center gap-2 font-mono text-xs">
@@ -269,15 +272,16 @@ export function ExecutionControls({
                   checked={!unchecked.includes(rule)}
                   onChange={(e) => setUnchecked((u) => (e.target.checked ? u.filter((r) => r !== rule) : [...u, rule]))}
                 />
-                {rule}
+                {permissionLabel(rule)}
                 {blocked.alreadyAllowed.includes(rule) && <span className="font-sans text-muted-foreground">already allowed here</span>}
               </label>
             ))}
           </div>
           {blocked.alreadyAllowed.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              Anything marked “already allowed here” is being blocked by your Claude Code settings or your organization’s policy. Approve it in the stage chat
-              (choose “don’t ask again”), then Resume: Gantry picks up those approvals.
+              {blocked.provider === 'opencode'
+                ? 'These requests were already granted in Gantry. Check OpenCode settings and provider policy before retrying.'
+                : 'Anything marked “already allowed here” is being blocked by your Claude Code settings or your organization’s policy. Approve it in the stage chat (choose “don’t ask again”), then Resume: Gantry picks up those approvals.'}
             </p>
           )}
           <div className="flex flex-wrap gap-2">

@@ -22,6 +22,7 @@ vi.mock('../desktop/src/lib/server/ticket-chat', () => ({ ticketContext: mocks.c
 vi.mock('../desktop/src/lib/server/ticket-conversations', () => ({ conversationFor: mocks.conversation, openWorkflowConversation: vi.fn() }));
 import { controlExecution, executionFor, tick } from '../desktop/src/lib/server/workflow-executor';
 import { newWorkflow, type Workflow } from '../packages/shared/src/workflow';
+import { allowedTools } from '../desktop/src/lib/server/stage-permissions';
 const graph: Workflow = {
   nodes: [
     { id: 'plan', kind: 'agent', label: 'Plan', instructions: 'Make a plan', dependsOn: [], model: 'strong' },
@@ -44,6 +45,7 @@ beforeEach(async () => {
   }
   fs.rmSync(path.join(mocks.home, 'workflow-runs'), { recursive: true, force: true });
   fs.mkdirSync(path.join(mocks.home, 'workflow-runs'));
+  fs.rmSync(path.join(mocks.home, 'stage-permissions.json'), { force: true });
   tickets.clear();
   add();
   mocks.driver.mockReset();
@@ -190,6 +192,37 @@ test('does not auto-start an existing external conversation', async () => {
   await tick();
   expect(mocks.driver).not.toHaveBeenCalled();
   await expect(controlExecution('test', 'start')).rejects.toThrow('external coding chat');
+});
+
+test('OpenCode permission waits show a blocker and Allow retries with isolated exact grants', async () => {
+  mocks.provider.mockImplementation(id => ({ id, kind: 'opencode', model: 'default' }));
+  mocks.driver.mockImplementationOnce(async input => {
+    input.hooks.session('ses_permission');
+    input.hooks.denied([{ provider: 'opencode', tool_name: 'read', tool_input: { pattern: '.env.template' } }]);
+    input.hooks.error('OpenCode is awaiting read permission.');
+  });
+  await controlExecution('test', 'start');
+  await vi.waitFor(() => expect(executionFor('test')?.state).toBe('waiting'));
+  await settled();
+  expect(executionFor('test')?.blocked).toMatchObject({ provider: 'opencode', nodeId: 'plan', rules: ['OpenCode(read:.env.template)'] });
+  await controlExecution('test', 'allow', 'plan');
+  await vi.waitFor(() => expect(executionFor('test')?.steps.plan).toBe('done'));
+  await settled();
+  expect(mocks.driver.mock.calls[1][0].workflow.allowedTools).toEqual(['OpenCode(read:.env.template)']);
+  expect(mocks.driver.mock.calls[1][0].sessionId).toBe('ses_permission');
+  expect(allowedTools('project', 'claude')).toEqual([]);
+  expect(allowedTools('project', 'opencode')).toEqual(['OpenCode(read:.env.template)']);
+});
+
+test('existing logged OpenCode permission failures gain an approval panel without rerunning', () => {
+  fs.writeFileSync(path.join(mocks.home, 'workflow-runs/test.json'), JSON.stringify({
+    ticketId: 'test', projectId: 'project', graph, state: 'waiting', message: 'Read blocked',
+    steps: { plan: 'failed', build: 'pending' }, defaultProviderId: 'opencode', updatedAt: 0,
+    attempts: [{ id: 'old', nodeId: 'plan', state: 'failed', providerKind: 'opencode', output: '',
+      summary: String.raw`OpenCode is blocked. Request: message=asking permission=read patterns="[\".env.template\"]" OpenCode logs: /path/to/logs` }],
+  }));
+  expect(executionFor('test')?.blocked).toMatchObject({ provider: 'opencode', rules: ['OpenCode(read:.env.template)'] });
+  expect(mocks.driver).not.toHaveBeenCalled();
 });
 
 test('runs ten independent tickets and queues the eleventh', async () => {

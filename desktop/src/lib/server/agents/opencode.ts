@@ -4,6 +4,7 @@ import { CLI } from './store';
 import { cliOutcome, runCli, toolDetail, transcript, type Driver } from './driver';
 import { resolveOpenCodeModel } from './opencode-models';
 import { scopedSessionId } from './session-scope';
+import { openCodePermissionRequest, parseOpenCodeRule } from '../../opencode-permissions';
 
 /** The parts of `opencode run --format json` lines we read. */
 interface OpenCodeLine {
@@ -25,10 +26,16 @@ const REVIEW_SHELL = ['git diff', 'git log', 'git show', 'git blame', 'git grep'
  * Permissions for one run, passed as inline config so they sit above your own OpenCode config.
  * The catch-all deny also refuses MCP tools and anything else not listed.
  */
-function permission(mode: 'review' | 'coordinator' | 'workflow', directories: string[]) {
-  if (mode === 'workflow') return {
-    external_directory: Object.fromEntries(directories.map((dir) => [`${path.resolve(dir).replaceAll('\\', '/').replace(/\/$/, '')}/*`, 'allow'])),
-  };
+function permission(mode: 'review' | 'coordinator' | 'workflow', directories: string[], grants: string[]) {
+  if (mode === 'workflow') {
+    const rules: Record<string, Record<string, string>> = Object.create(null);
+    rules.external_directory = Object.fromEntries(directories.map((dir) => [`${path.resolve(dir).replaceAll('\\', '/').replace(/\/$/, '')}/*`, 'allow']));
+    for (const rule of grants) {
+      const grant = parseOpenCodeRule(rule);
+      if (grant) (rules[grant.permission] ??= Object.create(null))[grant.pattern] = 'allow';
+    }
+    return rules;
+  }
   if (mode === 'coordinator') return { '*': 'deny' };
   return {
     '*': 'deny',
@@ -69,7 +76,7 @@ export const opencode: Driver = async ({ agent, cwd, system, prompt, sessionId: 
   if (sessionId) args.push('--session', sessionId);
   // OpenCode has no flag for extra system instructions, so each message carries them, as with Codex.
   const stdin = sessionId ? `${system}\n\n${prompt}` : `${system}\n\n${transcript(history)}${prompt}`;
-  const rules = permission(mode, [cwd, ...(workflow?.workspace ? [workflow.workspace] : []), ...(workflow?.addDirs ?? [])]);
+  const rules = permission(mode, [cwd, ...(workflow?.workspace ? [workflow.workspace] : []), ...(workflow?.addDirs ?? [])], workflow?.allowedTools ?? []);
   const blocked = new AbortController();
 
   let wrote = false;
@@ -87,6 +94,8 @@ export const opencode: Driver = async ({ agent, cwd, system, prompt, sessionId: 
     onStderrLine(line) {
       if (!/\bmessage=asking\b/.test(line) || !/\bpermission=/.test(line) || blocked.signal.aborted) return;
       const permission = /\bpermission=(\S+)/.exec(line)?.[1] ?? 'unknown';
+      const request = openCodePermissionRequest(line);
+      if (request) hooks.denied?.(request.patterns.map(pattern => ({ provider: 'opencode', tool_name: request.permission, tool_input: { pattern } })));
       failed = true;
       diagnosticHooks.error(`OpenCode is blocked awaiting ${permission} permission. Check the stage's workspace access or OpenCode permission rules, then retry. Request: ${line.slice(-2000)}`);
       blocked.abort();

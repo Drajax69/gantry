@@ -24,7 +24,7 @@ function input(): RunInput {
     cwd: '/path/to/workspace', system: 'Plan', prompt: 'Inspect', sessionId: 'ses_existing', history: [],
     sessionDirectory: '/path/to/workspace',
     signal: new AbortController().signal, workflow: { addDirs: [], reasoningEffort: 'medium' },
-    hooks: { text: vi.fn(), tool: vi.fn(), session: vi.fn(), cost: vi.fn(), error: vi.fn() },
+    hooks: { text: vi.fn(), tool: vi.fn(), session: vi.fn(), cost: vi.fn(), error: vi.fn(), denied: vi.fn() },
   };
 }
 
@@ -134,7 +134,17 @@ test('permission waits stop the subprocess and report an actionable error once',
     expect(request.signal.aborted).toBe(false);
     expect(request.hooks.error).toHaveBeenCalledTimes(1);
     expect(request.hooks.error).toHaveBeenCalledWith(expect.stringContaining('blocked awaiting external_directory permission'));
+    expect(request.hooks.denied).toHaveBeenCalledWith([{ provider: 'opencode', tool_name: 'external_directory', tool_input: { pattern: '/outside/*' } }]);
   } finally { log.mockRestore(); }
+});
+
+test('approved OpenCode patterns become exact config grants; Claude rules are ignored', async () => {
+  const request = input();
+  request.workflow!.allowedTools = ['OpenCode(read:.env.template)', 'Bash(git *)'];
+  await opencode(request);
+  const { permission } = JSON.parse(mocks.run.mock.calls[0][2].env.OPENCODE_CONFIG_CONTENT);
+  expect(permission.read).toEqual({ '.env.template': 'allow' });
+  expect(permission.bash).toBeUndefined();
 });
 
 test('ordinary permission evaluation logs do not interrupt the agent', async () => {

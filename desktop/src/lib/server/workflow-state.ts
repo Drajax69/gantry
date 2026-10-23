@@ -69,7 +69,7 @@ export interface Execution {
   /** Pull requests reported by stages, newest last. */
   deliverables?: Deliverable[];
   /** A stage stopped because tools were refused; `alreadyAllowed` were allowed in Gantry yet still refused. */
-  blocked?: { nodeId: string; rules: string[]; alreadyAllowed: string[]; at: number };
+  blocked?: { nodeId: string; provider?: 'claude' | 'opencode'; rules: string[]; alreadyAllowed: string[]; at: number };
   /** What happened outside stage attempts and routes (pauses, retries, choices, blocks), newest last. */
   events?: RunEvent[];
 }
