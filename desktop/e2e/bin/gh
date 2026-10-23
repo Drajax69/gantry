@@ -15,6 +15,7 @@ case "$1 $2" in
     else echo '[]'; fi ;;
   "auth git-credential") exit 0 ;;
   "api --paginate") # review comments, already shaped like our --jq output
+    if [[ -f "$PR_LENS_HOME/fail-comments" ]]; then echo "Fixture comments unavailable" >&2; exit 1; fi
     case "$3" in
       */pulls/1/comments)
         echo '{"id":11,"reply_to":null,"path":"src/util.py","line":2,"start_line":1,"original_line":2,"original_start_line":1,"side":"RIGHT","user":"hubot","avatar":null,"body":"Should this handle an empty **name**?","created_at":"2026-10-14T09:00:00Z","url":"https://github.com/local/fixture/pull/1#discussion_r11"}'

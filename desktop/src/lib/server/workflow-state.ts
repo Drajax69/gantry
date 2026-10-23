@@ -1,4 +1,5 @@
 import type { Workflow } from '../../../../packages/shared/src/workflow';
+import type { ReviewFeedback } from './workflow-review';
 
 export type Outcome = 'done' | 'changes_requested' | 'waiting' | 'failed';
 export interface Attempt {
@@ -72,6 +73,8 @@ export interface Execution {
   blocked?: { nodeId: string; provider?: 'claude' | 'opencode'; rules: string[]; alreadyAllowed: string[]; at: number };
   /** What happened outside stage attempts and routes (pauses, retries, choices, blocks), newest last. */
   events?: RunEvent[];
+  /** Recent review-loop snapshots, persisted with the execution rather than a transient retry note. */
+  reviewFeedback?: ReviewFeedback[];
 }
 export interface RunEvent {
   at: number;
@@ -133,6 +136,7 @@ export function resetFrom(run: Execution, target: string) {
       if (run.graph.edges !== undefined ? run.graph.edges.some((e) => e.target === n.id && reset.has(e.source)) : n.dependsOn.some((id) => reset.has(id)))
         reset.add(n.id);
   for (const id of reset) run.steps[id] = 'pending';
+  return reset;
 }
 /** Record PRs a stage reported; a later report for the same URL updates its title. */
 export function recordDeliverables(run: Execution, nodeId: string, pulls: ReportedPull[] = []) {
