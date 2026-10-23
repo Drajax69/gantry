@@ -2,11 +2,12 @@
 
 # Gantry
 
-### Big ideas. Less babysitting.
+### Your models. Your workflow. A graph you control.
 
-**Turn a ticket into working software—with your favourite coding agents.**
+**Build the graph your coding agents follow—from the first plan to the final review.**
 
-Describe the idea. Your agents plan, build, review, and open the PR—all in one desktop app.
+Design the steps. Choose the models. Connect the decisions and feedback loops.<br>
+Gantry turns your development process into a visible, repeatable workflow—in one desktop app.
 
 [**Get started ↓**](#get-started) · [Explore the docs](docs/FAQ.md) · [Give feedback](https://github.com/Drajax69/gantry/issues)
 
@@ -15,24 +16,52 @@ Open source · macOS & Windows · MIT licensed
 
 </div>
 
-## Your idea. A team of agents. One graph.
+## Stop repeating the process. Build it into the graph.
 
-```mermaid
-flowchart LR
-    Plan["1 · Plan<br/>Understand the task"] --> Implement["2 · Implement<br/>Build & test"]
-    Implement --> Review["3 · Review<br/>Check the work"]
-    Review -->|Looks good| PR["4 · Create PR<br/>Ready for you"]
-    Review -->|Needs changes| Implement
+You know how you want software built: understand the problem, make a plan, implement, test, review, fix what the review catches. Gantry lets you give that process to your models.
 
-    style Plan fill:#ede9fe,stroke:#8b5cf6,color:#2e1065
-    style Implement fill:#dbeafe,stroke:#3b82f6,color:#172554
-    style Review fill:#fef3c7,stroke:#f59e0b,color:#451a03
-    style PR fill:#d1fae5,stroke:#10b981,color:#064e3b
-```
+**Create your own graph on a visual canvas.** Every node is a task with its own instructions and model. Every connection describes when to move to the next step. Branch by outcome, loop back for corrections, and save the workflow as a template for the next ticket.
 
-**This graph comes ready to run.** Every stage has a built-in prompt. Review sends fixes back to implementation; approved work becomes a PR.
+### Build. Review. Improve. Then open the PR.
 
-Drag stages around. Connect your own steps. Pick a different agent or model for each one—or just use the defaults.
+Give planning, implementation, and review their own stages. Send requested changes back to the builder. Route approved work to a pull request. **Make the quality checks part of the process, every time.**
+
+<img alt="Gantry's graph editor showing planning, implementation and testing, review, and pull request stages, with a changes-requested loop back to implementation." src="docs/images/graph-review-loop.png" width="1600">
+
+<p align="center"><sub>Feature delivery with a review loop. Captured from the Gantry UI with example data.</sub></p>
+
+## More visibility. More deliberate quality. Less hand-holding.
+
+| What you control           | Why it matters                                                                                                                                       |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **The process**            | Define the stages your task needs, from a two-step fix to a multi-stage workflow with branches and correction loops.                                 |
+| **The model at each step** | Choose a provider, model, and reasoning effort per node. Give planning, coding, and review the settings they need.                                   |
+| **The quality checks**     | Give tests and review explicit instructions and a place in the graph. Route feedback into another implementation pass.                               |
+| **The visibility**         | Follow stage progress, inspect attempts and handovers, and see the coordinator's routing decisions. Know where work stands and what needs attention. |
+| **The repeatability**      | Save multiple graph templates, pick one per ticket, and import or export workflows to reuse a process that works.                                    |
+
+### Different problem? Different graph.
+
+A bug doesn't always need the same path as a feature. Start with investigation, route a frontend issue to a UI fix or an API issue to a backend fix, then verify the result.
+
+<img alt="Gantry's graph editor showing a bug investigation branching to a frontend or backend fix, with both paths leading to verification." src="docs/images/graph-bug-triage.png" width="1600">
+
+<p align="center"><sub>Conditional bug triage. Captured from the Gantry UI with example data.</sub></p>
+
+**You write the conditions in plain language.** Gantry's coordinator uses stage results to choose among the connections you've defined. Each ticket runs one working stage at a time; different tickets can run concurrently.
+
+## Draw it once. Put it to work.
+
+1. **Shape the workflow.** Add nodes, drag connections, and describe when each path should be taken.
+2. **Give each stage a job.** Set instructions and model choices. Add shared project conventions and test commands once for every stage to use.
+3. **Run it on a ticket.** Choose a graph template and move the ticket into **In progress** with **Run automatically** enabled.
+4. **Follow the work.** Inspect progress and stage history, open the preview, and review the changes. Feed PR review feedback back into a stage when another pass is needed.
+
+Start with the built-in **Plan → Implement → Review → Create PR** workflow, or make the graph your own.
+
+## The graph is the process. The workspace is the whole picture.
+
+Tickets, agent chats, Git worktrees, running previews, and pull requests stay together. Go from the workflow to the software it produced, without losing the context of the ticket.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/ticket-board-dark.png">
@@ -40,16 +69,7 @@ Drag stages around. Connect your own steps. Pick a different agent or model for 
   <img alt="Gantry brings your tickets, coding chats, running previews, and pull requests together in one colourful workspace." src="docs/images/ticket-board-dark.png" width="1440">
 </picture>
 
-<p align="center"><sub>Your next idea, its agent, and everything it needs. Together.</sub></p>
-
-## You bring the ideas. Gantry keeps things moving.
-
-| | |
-| --- | --- |
-| **Start with a ticket.** | Describe what you want. Drag it into **In progress**. Your agent gets to work. |
-| **Build your dream team.** | A ready-made graph handles planning, implementation, review, and the PR. Customize any stage. |
-| **See it working.** | Open a running preview of your feature, right beside your tickets. |
-| **Keep the whole feature together.** | Chats, changes, and pull requests stay with the ticket—even across repositories. |
+<p align="center"><sub>The workflow, the work, and the result—in one place.</sub></p>
 
 ## Get started
 
@@ -83,7 +103,7 @@ Your agent configures the workspace, previews, and starter graph for you.
 
 Choose your agent in **Settings** → **Add workspace** → create a ticket → drag it into **In progress**.
 
-New workspaces start the graph automatically when a ticket enters **In progress**. Keep Gantry open and follow each stage in **Workspace graph**. No graph-building required.
+New workspaces start the graph automatically when a ticket enters **In progress**. Open **Workspace graph** to customize your process, and follow each ticket's progress in its workflow view. Keep Gantry open while your agents work.
 
 <details>
 <summary><strong>Want a standalone app?</strong></summary>
@@ -110,9 +130,9 @@ Windows needs PowerShell. Builds are currently unsigned.
 
 <div align="center">
 
-**Build something you've been putting off.**
+**Your best development process. Ready for your next ticket.**
 
-If Gantry helps you ship it, [give it a star](https://github.com/Drajax69/gantry). It helps the next builder find us.
+[Get started](#get-started), build your first graph, and put your models to work. [Star Gantry](https://github.com/Drajax69/gantry) to help more builders find it.
 
 [Configuration](docs/configuration.md) · [FAQ](docs/FAQ.md) · [Contribute](CONTRIBUTING.md) · [Privacy & security](docs/security.md) · [MIT license](LICENSE)
 
