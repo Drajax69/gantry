@@ -29,6 +29,7 @@ export class GantryApp {
   readonly ports: PortAllocator;
   readonly remote: RemoteSync;
   readonly startedAt = Date.now();
+  readonly cleanupProjects = new Set<string>();
 
   private discoverTimer: NodeJS.Timeout | null = null;
   private remoteTimer: NodeJS.Timeout | null = null;

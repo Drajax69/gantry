@@ -94,7 +94,7 @@ Archiving a preview requires `confirm: true` in the request body — the UI dial
 
 ### No deletion of worktrees
 
-Gantry never deletes a worktree, never discards uncommitted changes, and never checks a different branch into an existing worktree. Previews are *archived* (services stopped, ports released, row retained and restorable). Removing a ticket removes the card; its branch and worktree stay on disk.
+Gantry never discards uncommitted changes or checks a different branch into an existing worktree. Previews are *archived* (services stopped, ports released, row retained and restorable). Removing a ticket removes the card; its branch and worktree stay on disk. The separate **Clean worktrees** action on Done tickets requires explicit confirmation and removes only clean, unlocked, merged non-primary checkouts under the configured worktree root, using non-forced Git removal. It retains branches and ticket history. See [worktree cleanup](FAQ.md#does-gantry-delete-worktrees) for guards and ignored-file handling.
 
 ### Agents run with your own credentials
 

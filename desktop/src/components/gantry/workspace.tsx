@@ -25,6 +25,7 @@ import { PreviewPane } from "./preview-pane";
 import { GraphStatus, TicketWorkflow, graphSummary } from "./workflow";
 import { SetupCheck } from "./setup-check";
 import { DeleteTicketDialog } from "./delete-ticket-dialog";
+import { CleanupWorktreesDialog } from "./cleanup-worktrees-dialog";
 import { TicketDialog } from "./ticket-dialog";
 import { TicketConversation, ticketChatRequest, openTicketChat } from "./ticket-chat";
 import { TicketOutcome } from "./ticket-outcome";
@@ -57,6 +58,7 @@ export function GantryWorkspace() {
   const [dropColumn, setDropColumn] = useState<string | null>(null);
   const [previewTicket, setPreviewTicket] = useState("main");
   const [deleting, setDeleting] = useState<TicketView | null>(null);
+  const [cleaning, setCleaning] = useState<TicketView | null>(null);
   const [creating, setCreating] = useState(false);
   const [editingTicket, setEditingTicket] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -215,10 +217,12 @@ export function GantryWorkspace() {
                     {t.conversation && <span className="text-xs text-muted-foreground">Chat linked · {t.conversation.providerName}</span>}
                     {t.run && <span className="text-xs text-muted-foreground">{t.run.agent} · {t.run.state}</span>}
                   </button>
+                  {t.status === "done" && <div className="border-t px-2 py-1"><Button size="sm" variant="ghost" disabled={busy} onClick={() => setCleaning(t)} aria-label={`Clean worktrees for ${t.title}`}>Clean worktrees</Button></div>}
                   <div className="gantry-ticket-actions flex flex-wrap gap-1 border-t px-2 py-1"><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, false, true)} aria-label={`Edit ticket ${t.title}`}>Edit</Button>{t.status === "in_progress" && <><Button size="sm" variant="ghost" disabled={busy} onClick={() => void openChatFor(t)} aria-label={`Open chat for ${t.title}`}><MessageSquareIcon />Open chat</Button><Button size="sm" variant="ghost" disabled={busy || !t.reviewSpaceId} onClick={() => void review([], t)} aria-label={`Open review space for ${t.title}`}><GitPullRequestIcon />Review<ArrowUpRightIcon /></Button><Button size="sm" variant="ghost" onClick={() => openTicket(t.id, true)} aria-label={`Preview ${t.title}`}><MonitorIcon />Preview</Button></>}<Button size="sm" variant="ghost" className="ml-auto" disabled={busy || !!(t.run && ["starting", "running", "interrupting"].includes(t.run.state))} onClick={() => setDeleting(t)} aria-label={`Delete ticket ${t.title}`}><Trash2Icon />Delete</Button></div>
                 </article>]));
 
   return <div className="gantry-workspace flex h-full min-h-0 flex-col bg-background">
+    {cleaning && <CleanupWorktreesDialog ticketId={cleaning.id} title={cleaning.title} onClose={() => setCleaning(null)} onCleaned={refresh} />}
     {deleting && <DeleteTicketDialog title={deleting.title} busy={busy} onCancel={() => setDeleting(null)} onDelete={() => void act(() => gantry.deleteTicket(deleting.id), "Ticket deleted").then(ok => { if (ok) { if (selected === deleting.id) closeTicket(); setDeleting(null); } })} />}
     <header className="app-bar flex h-12 shrink-0 items-center gap-3 border-b px-4">
       <span className="flex items-center gap-2 text-sm font-semibold"><LayoutListIcon className="size-5 text-violet-600 dark:text-violet-300" />Gantry</span>

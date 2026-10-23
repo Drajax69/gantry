@@ -34,7 +34,7 @@ vi.mock('../desktop/src/lib/server/spaces', () => ({
 vi.mock('../desktop/src/lib/server/comments', () => ({ getComments: mocks.comments }));
 vi.mock('../desktop/src/lib/server/chats', () => ({ loadChat: () => ({ messages: [] }), pendingFor: mocks.pending, queuedFor: () => [] }));
 vi.mock('../desktop/src/lib/server/stage-sessions', () => ({ sessionOpenInTerminal: async () => false }));
-import { controlExecution, executionFor, tick } from '../desktop/src/lib/server/workflow-executor';
+import { controlExecution, executionFor, executionHasWork, tick } from '../desktop/src/lib/server/workflow-executor';
 import { newWorkflow, type Workflow } from '../packages/shared/src/workflow';
 import { allowedTools } from '../desktop/src/lib/server/stage-permissions';
 const graph: Workflow = {
@@ -97,6 +97,22 @@ afterAll(async () => {
   delete (globalThis as any).workflowExecutor;
   vi.unstubAllGlobals();
   fs.rmSync(mocks.home, { recursive: true, force: true });
+});
+
+test.each(['paused', 'waiting', 'complete'] as const)('cleanup allows idle %s workflow history but blocks live workers and attempts', state => {
+  const run = { ticketId: 'TEST_cleanup', projectId: 'project', state, attempts: [], steps: {}, graph };
+  const file = path.join(mocks.home, 'workflow-runs', 'TEST_cleanup.json');
+  fs.writeFileSync(file, JSON.stringify(run));
+  expect(executionHasWork(run.ticketId)).toBe(false);
+  engine().active.set(run.ticketId, new AbortController());
+  expect(executionHasWork(run.ticketId)).toBe(true);
+  engine().active.delete(run.ticketId);
+  fs.writeFileSync(file, JSON.stringify({ ...run, attempts: [{ state: 'running' }] }));
+  expect(executionHasWork(run.ticketId)).toBe(true);
+  fs.writeFileSync(file, JSON.stringify({ ...run, steps: { plan: 'running' } }));
+  expect(executionHasWork(run.ticketId)).toBe(true);
+  fs.writeFileSync(file, JSON.stringify({ ...run, state: 'running' }));
+  expect(executionHasWork(run.ticketId)).toBe(true);
 });
 test('runs node-specific models with separate chats and passes handovers automatically', async () => {
   await controlExecution('test', 'start');
