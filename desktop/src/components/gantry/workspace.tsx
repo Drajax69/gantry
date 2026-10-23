@@ -12,9 +12,10 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { SettingsLink } from "@/components/settings-link";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/client/api";
-import { gantry, type ProjectView, type StatusView, type TicketView } from "@/lib/client/gantry";
+import { canvasWorkflow } from "@/lib/client/workflow-graph";
+import { gantry, type ProjectView, type StatusView, type TicketView, type Workflow } from "@/lib/client/gantry";
 
-import { WorkspaceGraphPage } from "./workflow-canvas";
+import { WorkflowCanvas, WorkspaceGraphPage } from "./workflow-canvas";
 import { TicketPullRequests } from "./ticket-pull-requests";
 import { TicketReviewStatus } from "./ticket-review-status";
 import { TicketGraph } from "./ticket-graph";
@@ -27,7 +28,7 @@ import { DeleteTicketDialog } from "./delete-ticket-dialog";
 import { TicketDialog } from "./ticket-dialog";
 import { TicketConversation, ticketChatRequest, openTicketChat } from "./ticket-chat";
 import { TicketOutcome } from "./ticket-outcome";
-import { confirmGraphNavigation, useGraphNavigationGuard } from "@/lib/client/unsaved-graph";
+import { confirmGraphNavigation, useGraphNavigationGuard, useUnsavedGraph } from "@/lib/client/unsaved-graph";
 
 type Area = "tickets" | "reviews" | "previews" | "workflow";
 const labels: Record<string, string> = { backlog: "Backlog", in_progress: "In progress", done: "Done" };
@@ -166,6 +167,7 @@ export function GantryWorkspace() {
     setTicketTab(preview ? "preview" : "details");
   }
   function closeTicket() {
+    if (creating && busy) return;
     if (!confirmGraphNavigation()) return;
     setSelected(null); setCreating(false); setLog(null); setEditingTicket(false);
     const params = new URLSearchParams(window.location.search); params.delete("ticket");
@@ -288,7 +290,19 @@ export function GantryWorkspace() {
             <div className="min-h-0 flex-1 overflow-y-auto p-6">
             {log && <section className="border-b p-6"><div className="mb-3 flex items-center justify-between gap-3"><h2 className="font-medium">{log.title}</h2><Button variant="ghost" size="sm" onClick={() => setLog(null)}>Close log</Button></div><pre className="max-h-80 overflow-auto rounded-lg bg-muted p-4 font-mono text-xs leading-relaxed">{log.text || "No output yet."}</pre></section>}
             {(creating || ticketTab === "details") && <section id="ticket-details" aria-label="Ticket details">
-            <div className={creating ? "max-w-3xl" : "min-w-0"}>{creating ? <TicketForm key={`new-${project.id}`} project={project} busy={busy} onCancel={() => setCreating(false)} onSave={async (input) => { await act(async () => { const t = await gantry.createTicket(project.id, input); setSelected(t.id); setCreating(false); }); }} /> : ticket &&
+            <div className="min-w-0">{creating ? <TicketForm
+              key={`new-${project.id}`}
+              project={project}
+              busy={busy}
+              onCancel={closeTicket}
+              onSave={async (input) => {
+                await act(async () => {
+                  await gantry.createTicket(project.id, input);
+                  setSelected(null);
+                  setCreating(false);
+                });
+              }}
+            /> : ticket &&
               <TicketDetail key={ticket.id} editing={editingTicket} setEditing={setEditingTicket} ticket={ticket} pullGroups={data?.pulls ?? []} project={project} busy={busy || movingTickets.has(ticket.id)} act={act} onReview={(urls) => review(urls, ticket)} onLog={showLog} onDeleted={closeTicket} onStage={status => moveTicket(ticket.id, status)} />}</div></section>}
         {ticket && ticketTab === "preview" && ticket.status === "in_progress" && <section id="ticket-preview" aria-label="Ticket preview" className="divide-y"><h3 className="pb-4 text-sm font-medium">Preview</h3>{ticketPreviews.map((p) => <section key={p.id} className="space-y-4 p-6">
           <div className="flex flex-wrap items-center gap-3"><GitBranchIcon className="size-4 text-muted-foreground" /><h2 className="min-w-0 break-all font-medium">{p.isPrimary ? "Main workspace" : p.branch}</h2><State value={p.paused ? "paused" : p.status} /><div className="flex-1" />
@@ -308,23 +322,40 @@ export function GantryWorkspace() {
   </div>;
 }
 
-type TicketInput = { title: string; description: string; scopes?: string[]; branch?: string; workflowTemplateId?: string };
+type TicketInput = {
+  title: string;
+  description: string;
+  scopes?: string[];
+  branch?: string;
+  workflowTemplateId?: string;
+  graph?: Workflow;
+};
 function TicketForm({ project, ticket, busy, onSave, onCancel }: { project: ProjectView; ticket?: TicketView; busy: boolean; onSave: (input: TicketInput) => Promise<void>; onCancel: () => void }) {
   const [title, setTitle] = useState(ticket?.title ?? "");
   const [branch, setBranch] = useState(ticket?.branch ?? "");
   const [description, setDescription] = useState(ticket?.description ?? "");
   const [scopes, setScopes] = useState(() => ticketServiceScopes(ticket ?? {}, project.services));
   const [scopesTouched, setScopesTouched] = useState(false);
-  const [templates, setTemplates] = useState<{ id: string; name: string }[] | null>(null);
+  const [templates, setTemplates] = useState<{ id: string; name: string; graph: Workflow }[] | null>(null);
   const [templateId, setTemplateId] = useState('default');
   const [templateError, setTemplateError] = useState('');
+  const [graph, setGraph] = useState<Workflow | null>(null);
+  const initialGraph = templates?.find(template => template.id === templateId)?.graph;
+  const graphEdits = useUnsavedGraph(
+    !ticket && !!graph && !!initialGraph &&
+    JSON.stringify(graph) !== JSON.stringify(canvasWorkflow(initialGraph)),
+  );
 
   useEffect(() => {
     if (ticket) return;
     let live = true;
 
     gantry.workspaceWorkflowTemplates(project.id).then(items => {
-      if (live) setTemplates(items);
+      if (live) {
+        setTemplates(items);
+        const initial = items.find(template => template.id === 'default')?.graph;
+        setGraph(initial ? canvasWorkflow(initial) : null);
+      }
     }).catch(error => {
       if (live) setTemplateError(error.message);
     });
@@ -334,13 +365,30 @@ function TicketForm({ project, ticket, busy, onSave, onCancel }: { project: Proj
   const scopeIds = [...new Set([...project.services.map((service) => service.id), ...(ticket?.scopes ?? [])])];
   // Refreshes can change ticket props without the user editing this selection.
   const scopeChanged = !ticket || scopesTouched;
-  return <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); void onSave({ title: title.trim(), description, ...(!ticket ? { workflowTemplateId: templateId } : {}), ...(scopeChanged ? { scopes } : {}), ...(branch.trim() ? { branch: branch.trim() } : {}) }); }}>
+
+  return <div className={ticket ? "max-w-3xl" : "grid min-w-0 gap-6 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]"}>
+    <form className="space-y-5" onSubmit={(event) => {
+      event.preventDefault();
+
+      void onSave({
+        title: title.trim(),
+        description,
+        ...(!ticket && graph ? { workflowTemplateId: templateId, graph } : {}),
+        ...(scopeChanged ? { scopes } : {}),
+        ...(branch.trim() ? { branch: branch.trim() } : {}),
+      });
+    }}>
     <h2 className="text-lg font-semibold">{ticket ? "Edit ticket" : "New ticket"}</h2>
     <label className="block space-y-2 text-sm">Title<Input autoFocus required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What needs to change?" /></label>
     <label className="block space-y-2 text-sm">Branch<Input aria-label="Branch" value={branch} onChange={e => setBranch(e.target.value)} placeholder="Generated from title if empty" /></label>
     <label className="block space-y-2 text-sm">Notes<Textarea aria-label="Notes" className="min-h-32" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Context, expected behavior, and acceptance criteria" /></label>
     {!ticket && <label className="block space-y-2 text-sm">Workspace graph template
-      <select aria-label="Workspace graph template" className={selectClass} disabled={busy || !templates} value={templateId} onChange={event => setTemplateId(event.target.value)}>
+      <select aria-label="Workspace graph template" className={selectClass} disabled={busy || !templates} value={templateId} onChange={event => {
+        if (!graphEdits.confirmDiscard()) return;
+        setTemplateId(event.target.value);
+        const initial = templates?.find(template => template.id === event.target.value)?.graph;
+        setGraph(initial ? canvasWorkflow(initial) : null);
+      }}>
         {!templates && <option value="default">Loading graphs…</option>}
         {templates?.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
       </select>
@@ -365,8 +413,25 @@ function TicketForm({ project, ticket, busy, onSave, onCancel }: { project: Proj
       {!project.services.length && <p className="text-xs text-muted-foreground">No services configured in gantry.yaml.</p>}
       {ticket && ticket.scopeDescription?.startsWith("Legacy scope:") && <p className="text-xs text-muted-foreground">Legacy scope: {ticket.scope}. Select services to replace it.</p>}
     </fieldset>
-    <div className="flex gap-2"><Button type="submit" disabled={busy || !title.trim() || (!ticket && !templates)}>{busy && <Loader2Icon className="animate-spin" />}{ticket ? "Save changes" : "Create ticket"}</Button><Button variant="ghost" disabled={busy} onClick={onCancel}>Cancel</Button></div>
-  </form>;
+    <div className="flex gap-2">
+      <Button type="submit" disabled={busy || !title.trim() || (!ticket && !graph)}>
+        {busy && <Loader2Icon className="animate-spin" />}
+        {ticket ? "Save changes" : "Create ticket"}
+      </Button>
+      <Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>Cancel</Button>
+    </div>
+  </form>
+  {!ticket && <fieldset disabled={busy} className="min-w-0 overflow-hidden rounded-lg border">
+    <legend className="px-2 text-sm font-medium">Ticket workflow</legend>
+    <p className="px-5 py-3 text-xs text-muted-foreground">
+      Edit stages, instructions, and connections here. Your graph is saved with Create ticket and only affects this ticket.
+    </p>
+    {graph && initialGraph && <div className="flex h-[min(64dvh,720px)] min-h-[520px] flex-col">
+      <WorkflowCanvas key={templateId} initial={initialGraph} onChange={setGraph} />
+    </div>}
+    {!graph && <p role="status" className="p-5 text-sm text-muted-foreground">{templateError ? 'Unable to load the workflow. Close and reopen to retry.' : 'Loading workflow…'}</p>}
+  </fieldset>}
+  </div>;
 }
 
 function TicketDetail({ ticket: t, pullGroups, project, busy, act, onReview, onLog, onDeleted, editing, setEditing, onStage }: { onStage: (status: string) => Promise<void>; editing: boolean; setEditing: (value: boolean) => void; ticket: TicketView; pullGroups: StatusView["pulls"]; project: ProjectView; busy: boolean; act: (action: () => Promise<unknown>, message?: string) => Promise<boolean>; onReview: (urls: string[]) => Promise<void>; onLog: (title: string, url: string) => Promise<void>; onDeleted: () => void }) {

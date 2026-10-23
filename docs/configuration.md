@@ -391,11 +391,21 @@ characters); `default` is reserved. Names must be nonempty, unique ignoring case
 and at most 80 characters; **Default** is reserved. A workspace supports up to 100
 named alternatives. Graphs use the same validation as `workflow`.
 
+The desktop **New ticket** dialog shows an editable copy beside the ticket details.
+Set stage instructions, providers, models, connections, and **Run automatically**
+before selecting **Create ticket**. These edits affect only the new ticket and are
+saved together with its details. Switching templates or closing the dialog asks
+before discarding graph edits. After creation, the dialog closes to the board;
+open the ticket when you want to view or run it.
+
 Runtime API: `GET /api/projects/:projectId/workflow-templates` lists the default
 and alternatives. `POST` to that collection with `{ name, graph }` creates an
 alternative with a generated ID; `POST` to `.../workflow-templates/:templateId`
 updates an existing alternative. Ticket creation accepts `workflowTemplateId`;
-unknown selections are rejected before creating a ticket. Existing `workflow`
+unknown selections are rejected before creating a ticket. An optional `graph`
+overrides the selected template for this ticket and is validated before insertion;
+omitting it keeps the selected template's graph. Invalid graphs create no ticket.
+Existing `workflow`
 endpoints continue reading and writing the default graph.
 
 ## Copy a workspace graph

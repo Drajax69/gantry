@@ -36,7 +36,8 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/api/projects/fixture/chat-prompt') { if (req.method === 'POST') workspacePrompt=body.prompt; return send({prompt:workspacePrompt}); }
   if (req.url === "/__fixture") { overrides = body.status ?? null; return send({ok:true}); }
   if (req.url === '/api/projects/fixture/tickets') {
-    const graph = body.workflowTemplateId && body.workflowTemplateId !== 'default' ? workspaceTemplates.find(template => template.id === body.workflowTemplateId)?.graph : workspaceGraph;
+    const template = body.workflowTemplateId && body.workflowTemplateId !== 'default' ? workspaceTemplates.find(template => template.id === body.workflowTemplateId)?.graph : workspaceGraph;
+    const graph = body.graph ?? template;
     if (!graph) return send({ error: 'Workspace graph template not found.' }, 400);
     const ticket = { ...body,id:'ticket-1',projectId:'fixture',status:'backlog',branch:'ticket/review',run:null,pullRequests:[],artifacts:[],workflow:{graph:structuredClone(graph),revision:0,states:Object.fromEntries(graph.nodes.map(n=>[n.id,{state:'pending',message:''}]))} };
     tickets = [ticket]; return send(ticket);
