@@ -207,6 +207,7 @@ export async function importLegacyWorkspace(input: LegacyImportInput, db?: Datab
     services,
     environments,
     promptTemplates: [],
+    workflowTemplates: [],
     scopes: [],
     agents: [],
     safety: { testRecordPrefix: 'TEST_', manualTestFile: 'manual-test-needed.md', policy: undefined },

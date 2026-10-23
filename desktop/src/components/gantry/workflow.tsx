@@ -249,6 +249,7 @@ export function TicketWorkflow({ ticket, refresh }: { ticket: TicketView; refres
       {editing ? (
         <WorkflowCanvas
           initial={run.graph}
+          templateProjectId={ticket.projectId}
           onCancel={() => setEditing(false)}
           onSave={async (graph) => {
             await gantry.saveTicketWorkflow(ticket.id, graph, run.revision);

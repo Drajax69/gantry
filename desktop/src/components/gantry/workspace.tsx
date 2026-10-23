@@ -308,21 +308,45 @@ export function GantryWorkspace() {
   </div>;
 }
 
-type TicketInput = { title: string; description: string; scopes?: string[]; branch?: string };
+type TicketInput = { title: string; description: string; scopes?: string[]; branch?: string; workflowTemplateId?: string };
 function TicketForm({ project, ticket, busy, onSave, onCancel }: { project: ProjectView; ticket?: TicketView; busy: boolean; onSave: (input: TicketInput) => Promise<void>; onCancel: () => void }) {
   const [title, setTitle] = useState(ticket?.title ?? "");
   const [branch, setBranch] = useState(ticket?.branch ?? "");
   const [description, setDescription] = useState(ticket?.description ?? "");
   const [scopes, setScopes] = useState(() => ticketServiceScopes(ticket ?? {}, project.services));
   const [scopesTouched, setScopesTouched] = useState(false);
+  const [templates, setTemplates] = useState<{ id: string; name: string }[] | null>(null);
+  const [templateId, setTemplateId] = useState('default');
+  const [templateError, setTemplateError] = useState('');
+
+  useEffect(() => {
+    if (ticket) return;
+    let live = true;
+
+    gantry.workspaceWorkflowTemplates(project.id).then(items => {
+      if (live) setTemplates(items);
+    }).catch(error => {
+      if (live) setTemplateError(error.message);
+    });
+
+    return () => { live = false; };
+  }, [project.id, ticket]);
   const scopeIds = [...new Set([...project.services.map((service) => service.id), ...(ticket?.scopes ?? [])])];
   // Refreshes can change ticket props without the user editing this selection.
   const scopeChanged = !ticket || scopesTouched;
-  return <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); void onSave({ title: title.trim(), description, ...(scopeChanged ? { scopes } : {}), ...(branch.trim() ? { branch: branch.trim() } : {}) }); }}>
+  return <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); void onSave({ title: title.trim(), description, ...(!ticket ? { workflowTemplateId: templateId } : {}), ...(scopeChanged ? { scopes } : {}), ...(branch.trim() ? { branch: branch.trim() } : {}) }); }}>
     <h2 className="text-lg font-semibold">{ticket ? "Edit ticket" : "New ticket"}</h2>
     <label className="block space-y-2 text-sm">Title<Input autoFocus required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What needs to change?" /></label>
     <label className="block space-y-2 text-sm">Branch<Input aria-label="Branch" value={branch} onChange={e => setBranch(e.target.value)} placeholder="Generated from title if empty" /></label>
     <label className="block space-y-2 text-sm">Notes<Textarea aria-label="Notes" className="min-h-32" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Context, expected behavior, and acceptance criteria" /></label>
+    {!ticket && <label className="block space-y-2 text-sm">Workspace graph template
+      <select aria-label="Workspace graph template" className={selectClass} disabled={busy || !templates} value={templateId} onChange={event => setTemplateId(event.target.value)}>
+        {!templates && <option value="default">Loading graphs…</option>}
+        {templates?.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
+      </select>
+      <span className="block text-xs text-muted-foreground">This ticket gets its own copy of the selected graph.</span>
+      {templateError && <span role="alert" className="block text-destructive">{templateError}</span>}
+    </label>}
     <fieldset className="space-y-2" disabled={busy}>
       <legend className="mb-2 text-sm font-medium">Scope</legend>
       <p className="text-xs text-muted-foreground">Select the services this ticket affects. Leave empty for workspace-wide work.</p>
@@ -341,7 +365,7 @@ function TicketForm({ project, ticket, busy, onSave, onCancel }: { project: Proj
       {!project.services.length && <p className="text-xs text-muted-foreground">No services configured in gantry.yaml.</p>}
       {ticket && ticket.scopeDescription?.startsWith("Legacy scope:") && <p className="text-xs text-muted-foreground">Legacy scope: {ticket.scope}. Select services to replace it.</p>}
     </fieldset>
-    <div className="flex gap-2"><Button type="submit" disabled={busy || !title.trim()}>{busy && <Loader2Icon className="animate-spin" />}{ticket ? "Save changes" : "Create ticket"}</Button><Button variant="ghost" disabled={busy} onClick={onCancel}>Cancel</Button></div>
+    <div className="flex gap-2"><Button type="submit" disabled={busy || !title.trim() || (!ticket && !templates)}>{busy && <Loader2Icon className="animate-spin" />}{ticket ? "Save changes" : "Create ticket"}</Button><Button variant="ghost" disabled={busy} onClick={onCancel}>Cancel</Button></div>
   </form>;
 }
 

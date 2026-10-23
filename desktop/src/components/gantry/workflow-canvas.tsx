@@ -9,7 +9,7 @@ import { gantry, type Workflow, type ProjectView } from '@/lib/client/gantry';
 import { canvasWorkflow, nodePositions } from '@/lib/client/workflow-graph';
 import { exportWorkflow, importWorkflow } from '../../../../packages/shared/src/workflow';
 import { WorkspacePromptDialog } from './workspace-prompt-dialog';
-import { useUnsavedGraph } from '@/lib/client/unsaved-graph';
+import { confirmGraphNavigation, useUnsavedGraph } from '@/lib/client/unsaved-graph';
 
 type Node = Workflow['nodes'][number];
 type Edge = NonNullable<Workflow['edges']>[number];
@@ -229,10 +229,14 @@ export function WorkflowCanvas({
   header,
   draftKey,
   portable = false,
+  templateProjectId,
+  onTemplateAdded,
 }: {
   initial: Workflow;
   draftKey?: string;
   portable?: boolean;
+  templateProjectId?: string;
+  onTemplateAdded?: () => Promise<void>;
   onSave: (graph: Workflow) => Promise<void>;
   onCancel?: () => void;
   header?: ReactNode;
@@ -255,6 +259,10 @@ export function WorkflowCanvas({
   const [zoom, setZoom] = useState(0.85);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [templateError, setTemplateError] = useState('');
+  const [templateSaved, setTemplateSaved] = useState(false);
   const viewport = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id?: string; x: number; y: number; originX: number; originY: number; moved: boolean } | null>(null);
   const suppressClick = useRef(false);
@@ -380,6 +388,11 @@ export function WorkflowCanvas({
       <div className="flex flex-wrap items-center gap-3 border-b px-5 py-4">
         {header}
         <div className="ml-auto flex flex-wrap items-center gap-3">
+          {templateProjectId && (
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => { setTemplateError(''); setTemplateSaved(false); setTemplateOpen(true); }}>
+              Add as workspace graph template
+            </Button>
+          )}
           {portable && (
             <>
               <input
@@ -448,6 +461,36 @@ export function WorkflowCanvas({
           </Button>
         </div>
       </div>
+      {templateSaved && <p role="status" className="px-5 py-2 text-sm">Workspace graph template added.</p>}
+      {templateOpen && templateProjectId && (
+        <EditorDialog title="Add workspace graph template" onClose={() => { if (!busy) setTemplateOpen(false); }}>
+          <form className="space-y-4" onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setTemplateError('');
+
+            try {
+              await gantry.saveWorkspaceWorkflowTemplate(templateProjectId, templateName.trim(), graph);
+              setTemplateOpen(false);
+              setTemplateName('');
+              setTemplateSaved(true);
+              await onTemplateAdded?.();
+            } catch (error) {
+              setTemplateError((error as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}>
+            <p className="text-sm text-muted-foreground">Save the current graph draft for future tickets. Ticket progress is not included.</p>
+            <label className="block space-y-2 text-sm">Template name<Input required maxLength={80} value={templateName} disabled={busy} onChange={event => setTemplateName(event.target.value)} /></label>
+            {templateError && <p role="alert" className="text-sm text-destructive">{templateError}</p>}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => setTemplateOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={busy || !templateName.trim()}>{busy ? 'Adding…' : 'Add template'}</Button>
+            </div>
+          </form>
+        </EditorDialog>
+      )}
       {imported && (
         <EditorDialog title="Import workspace graph" onClose={() => setImported(null)}>
           <p className="mb-4 text-sm text-muted-foreground">
@@ -749,15 +792,17 @@ export function WorkflowCanvas({
   );
 }
 export function WorkspaceGraphPage({ project }: { project: ProjectView }) {
-  const [graph, setGraph] = useState<Workflow | null>(null);
+  const [templates, setTemplates] = useState<{ id: string; name: string; graph: Workflow }[]>([]);
+  const [templateId, setTemplateId] = useState('default');
+  const graph = templates.find(template => template.id === templateId)?.graph;
   const [error, setError] = useState('');
   const [promptOpen, setPromptOpen] = useState(false);
   useEffect(() => {
     let live = true;
     gantry
-      .workspaceWorkflow(project.id)
-      .then((g) => {
-        if (live) setGraph(g);
+      .workspaceWorkflowTemplates(project.id)
+      .then((items) => {
+        if (live) setTemplates(items);
       })
       .catch((e) => {
         if (live) setError(e.message);
@@ -782,11 +827,24 @@ export function WorkspaceGraphPage({ project }: { project: ProjectView }) {
         </div>
         <Button variant="outline" onClick={() => setPromptOpen(true)}>Edit shared instructions<ArrowRightIcon /></Button>
       </section>
+      <label className="flex items-center gap-3 border-b px-5 py-3 text-sm">
+        Workspace graph template
+        <select aria-label="Workspace graph template" className={selectClass} value={templateId} onChange={event => { if (confirmGraphNavigation()) setTemplateId(event.target.value); }}>
+          {templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
+        </select>
+      </label>
       <WorkflowCanvas
+        key={`${project.id}:${templateId}`}
         portable
-        draftKey={`gantry-graph-draft:${project.id}`}
+        templateProjectId={project.id}
+        onTemplateAdded={async () => setTemplates(await gantry.workspaceWorkflowTemplates(project.id))}
+        draftKey={templateId === 'default' ? `gantry-graph-draft:${project.id}` : `gantry-graph-draft:${project.id}:${templateId}`}
         initial={graph}
-        onSave={(g) => gantry.saveWorkspaceWorkflow(project.id, g).then(() => {})}
+        onSave={async (graph) => {
+          if (templateId === 'default') await gantry.saveWorkspaceWorkflow(project.id, graph);
+          else await gantry.saveWorkspaceWorkflowTemplate(project.id, templates.find(template => template.id === templateId)!.name, graph, templateId);
+          setTemplates(items => items.map(template => template.id === templateId ? { ...template, graph } : template));
+        }}
         header={
           <div>
             <h1 className="text-base font-semibold">Workspace graph</h1>

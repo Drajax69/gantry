@@ -157,6 +157,14 @@ export const agentConfigSchema = z.object({
 });
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 
+export const workflowTemplateSchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/).refine(id => id !== 'default', 'The default graph id is reserved'),
+  name: z.string().trim().min(1).max(80),
+  graph: workflowSchema,
+});
+
+export type WorkflowTemplate = z.infer<typeof workflowTemplateSchema>;
+
 export const projectSchema = z.object({
   apiVersion: z.literal(API_VERSION, {
     errorMap: () => ({ message: `apiVersion must be "${API_VERSION}"` }),
@@ -181,6 +189,17 @@ export const projectSchema = z.object({
   environments: z.array(environmentSchema).default([]),
   promptTemplates: z.array(promptTemplateSchema).default([]),
   workflow: workflowSchema.optional(),
+  workflowTemplates: z.array(workflowTemplateSchema).max(100).default([]).superRefine((templates, ctx) => {
+    const ids = new Set<string>();
+    const names = new Set<string>(['default']);
+
+    for (const [index, template] of templates.entries()) {
+      if (ids.has(template.id)) ctx.addIssue({ code: 'custom', path: [index, 'id'], message: 'Duplicate graph template id' });
+      if (names.has(template.name.toLowerCase())) ctx.addIssue({ code: 'custom', path: [index, 'name'], message: 'Duplicate graph template name' });
+      ids.add(template.id);
+      names.add(template.name.toLowerCase());
+    }
+  }),
   /** Deprecated legacy categories, accepted for older workspace files only. */
   scopes: z.array(ticketScopeSchema).default([]),
   agents: z.array(agentConfigSchema).default([]),

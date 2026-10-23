@@ -160,6 +160,9 @@ reviewed work. No stage merges or deploys. Missing prerequisites are reported
 as a waiting state, not silently skipped.
 
 If a workspace already has a graph, preserve it and its automatic-run setting.
+Preserve any `workflowTemplates` too. These named alternatives appear in the new
+ticket graph selector; `workflow` remains the default. Users can add alternatives
+from **Workspace graph** or a ticket's **Edit graph** with **Add as workspace graph template**.
 If its config has no `workflow`, add the starter graph as part of this requested
 setup. Do not replace existing custom graphs with the default.
 

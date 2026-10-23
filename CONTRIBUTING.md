@@ -100,3 +100,6 @@ Do not open a public issue for a security problem. See [SECURITY.md](./SECURITY.
 ## Desktop application
 
 The primary product UI is now `desktop/` (Electron + Next.js); `packages/ui` remains the standalone runtime dashboard. Install its independent dependency lock with `npm run desktop:setup`. Use `npm run desktop:build` to build the runtime and desktop together. Run the desktop's typecheck, lint and offline browser tests before submitting UI changes. Never copy `~/.pr-lens`, Gantry's data directory, workspace YAML, screenshots of personal work, or local checkouts into the repository.
+
+For concurrent worktrees, choose unused offline browser-test ports with
+`GANTRY_E2E_PORT=3657 GANTRY_E2E_RUNTIME_PORT=3658 npm run desktop:test`.

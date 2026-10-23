@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
+const runtimeUrl = `http://127.0.0.1:${process.env.GANTRY_E2E_RUNTIME_PORT ?? 3458}`;
+
 test('Gantry ticket, preview and review workflow stays inside Gantry', async ({ page }) => {
   const initialSpaces = await (await page.request.get('/api/spaces')).json();
   await page.goto('/');
@@ -114,7 +116,7 @@ test('Gantry follows the review app themes and desktop window sizes', async ({ p
 
 test('workspace tickets own stable spaces and collect all associated PRs', async ({page,request}) => {
   test.setTimeout(90000);
-  const base = await (await request.get('http://127.0.0.1:3458/api/status')).json();
+  const base = await (await request.get(`${runtimeUrl}/api/status`)).json();
   const originalSpaces = await (await request.get('/api/spaces')).json();
   const ticket = (id:string,projectId:string,branch:string) => ({id,projectId,title:'Shared title',description:'',status:'in_progress',scope:'both',branch,pullRequests:[],artifacts:[],run:null});
   const status = {...base,projects:[base.projects[0],{...base.projects[0],id:'other',name:'Other workspace',workspace:'/fixture/other'}],
@@ -122,7 +124,7 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
     pulls:[{...base.pulls[0],pulls:{frontend:base.pulls[0].pulls.frontend,backend:{number:2,url:'https://github.com/local/fixture/pull/2',title:'Backend fix'}}}],
   };
   try {
-    await request.post('http://127.0.0.1:3458/__fixture',{data:{status}});
+    await request.post(`${runtimeUrl}/__fixture`,{data:{status}});
     await page.goto('/');
     await expect(page.getByRole('region',{name:'Ticket board'})).toBeVisible();
     const first = await (await request.get('/api/gantry/api/status')).json();
@@ -140,7 +142,7 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
     await expect(page.getByRole('tab',{name:'fixture #2',exact:true})).toBeVisible();
     // A new PR arrives while the user remains in the space.
     status.tickets[0].pullRequests = [{role:'docs',number:3,url:'https://github.com/local/fixture/pull/3',title:'Docs fix'}] as never[];
-    await request.post('http://127.0.0.1:3458/__fixture',{data:{status}});
+    await request.post(`${runtimeUrl}/__fixture`,{data:{status}});
     await expect(page.getByRole('tab',{name:'fixture #3',exact:true})).toBeVisible({timeout:15000});
     const repeated = await (await request.get('/api/gantry/api/status')).json();
     expect(repeated.tickets[0].reviewSpaceId).toBe(one.id);
@@ -148,7 +150,7 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
     expect(updated.targets).toHaveLength(3);
     expect(updated.files['local/fixture/pull/1']).toBe('src/math.ts');
     status.tickets[0].status = 'done';
-    await request.post('http://127.0.0.1:3458/__fixture',{data:{status}});
+    await request.post(`${runtimeUrl}/__fixture`,{data:{status}});
     const completed = await (await request.get('/api/gantry/api/status')).json();
     expect(completed.tickets[0].reviewSpaceId).toBeUndefined();
     expect((await (await request.get('/api/spaces')).json()).spaces.some((s:{id:string}) => s.id === one.id)).toBe(false);
@@ -157,7 +159,7 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
     await expect(page.getByRole('region',{name:'Done',exact:true}).getByRole('button',{name:/Open review space/})).toHaveCount(0);
     await expect(page.getByRole('region',{name:'Done',exact:true}).getByRole('button',{name:/Preview/})).toHaveCount(0);
     status.tickets[0].status = 'in_progress';
-    await request.post('http://127.0.0.1:3458/__fixture',{data:{status}});
+    await request.post(`${runtimeUrl}/__fixture`,{data:{status}});
     const reopened = await (await request.get('/api/gantry/api/status')).json();
     expect(reopened.tickets[0].reviewSpaceId).toBe(one.id);
     await page.goto(`/space/${one.id}`);
@@ -170,7 +172,7 @@ test('workspace tickets own stable spaces and collect all associated PRs', async
     await expect(page).toHaveURL(new RegExp(`review=${two.id}`));
     await expect(page.getByRole('tab')).toHaveCount(0);
   } finally {
-    await request.post('http://127.0.0.1:3458/__fixture',{data:{status:null}});
+    await request.post(`${runtimeUrl}/__fixture`,{data:{status:null}});
     await page.goto('/reviews');
     const current = await (await request.get('/api/spaces')).json();
     for (const space of current.spaces) {
@@ -326,11 +328,11 @@ test('API-only providers fail clearly without launching or creating an embedded 
 });
 
 test('ticket colours are distinct, survive moves and reloads, and stay readable in both themes', async ({page,request}) => {
-  const status=await (await request.get('http://127.0.0.1:3458/api/status')).json();
+  const status=await (await request.get(`${runtimeUrl}/api/status`)).json();
   const titles=['Refresh the exam creator','Improve graphs','Make insights clearer','Collaborative exams','Simplify question search','Export answer sheets','Online exam runtime','Preview branch changes','Answer sheet tags','Faster document uploads'];
   const tickets=titles.map((title,i)=>({projectId:'fixture',description:'',scope:'both',run:null,pullRequests:[],artifacts:[],...status.tickets[0],id:`colour-${i}`,title,branch:`ticket/colour-${i}`,status:i<6?'backlog':i<8?'in_progress':'done',position:i}));
   try {
-    await request.post('http://127.0.0.1:3458/__fixture',{data:{status:{...status,tickets}}});
+    await request.post(`${runtimeUrl}/__fixture`,{data:{status:{...status,tickets}}});
     await page.goto('/');
     const cards=page.locator('article[data-ticket-id]');
     await expect(cards).toHaveCount(10);
@@ -351,7 +353,7 @@ test('ticket colours are distinct, survive moves and reloads, and stay readable 
       expect(minimum).toBeGreaterThanOrEqual(4.5);
     }
     tickets[0].status='in_progress'; tickets.reverse();
-    await request.post('http://127.0.0.1:3458/__fixture',{data:{status:{...status,tickets}}});
+    await request.post(`${runtimeUrl}/__fixture`,{data:{status:{...status,tickets}}});
     await page.reload();
     await expect(cards).toHaveCount(10);
     await expect.poll(()=>cards.evaluateAll(es=>Object.fromEntries(es.map(e=>[e.getAttribute('data-ticket-id'),e.getAttribute('style')])))).toEqual(original);
@@ -359,12 +361,12 @@ test('ticket colours are distinct, survive moves and reloads, and stay readable 
     await page.screenshot({path:'e2e/.tmp/colour-board-compact.png'});
     await page.getByRole('button',{name:/Refresh the exam creator.*ticket\/colour-0/}).click();
     await expect(page.getByRole('dialog').locator('header')).toHaveClass(/gantry-ticket-heading/);
-  } finally { await request.post('http://127.0.0.1:3458/__fixture',{data:{status:null}}); }
+  } finally { await request.post(`${runtimeUrl}/__fixture`,{data:{status:null}}); }
 });
 
 test('tickets can be deleted from the board after confirmation, including Done tickets', async ({page,request}) => {
-  const original=(await (await request.get('http://127.0.0.1:3458/api/status')).json()).tickets[0];
-  await request.post('http://127.0.0.1:3458/api/projects/fixture/tickets',{data:{title:'Disposable deletion ticket',branch:'ticket/delete',description:''}});
+  const original=(await (await request.get(`${runtimeUrl}/api/status`)).json()).tickets[0];
+  await request.post(`${runtimeUrl}/api/projects/fixture/tickets`,{data:{title:'Disposable deletion ticket',branch:'ticket/delete',description:''}});
   await page.goto('/');
   const card=page.locator('article[data-ticket-id="ticket-1"]');
   const remove=card.getByRole('button',{name:'Delete ticket Disposable deletion ticket',exact:true});
@@ -376,10 +378,10 @@ test('tickets can be deleted from the board after confirmation, including Done t
   await expect(dialog).toHaveCount(0);
   await expect(remove).toBeFocused();
   await expect(card).toBeVisible();
-  await request.post('http://127.0.0.1:3458/api/tickets/ticket-1/update',{data:{run:{agent:'generic',state:'running'}}});
+  await request.post(`${runtimeUrl}/api/tickets/ticket-1/update`,{data:{run:{agent:'generic',state:'running'}}});
   await page.reload();
   await expect(remove).toBeDisabled();
-  await request.post('http://127.0.0.1:3458/api/tickets/ticket-1/update',{data:{status:'done',run:null}});
+  await request.post(`${runtimeUrl}/api/tickets/ticket-1/update`,{data:{status:'done',run:null}});
   await page.reload();
   await remove.click();
   await page.setViewportSize({width:900,height:650});
@@ -390,19 +392,19 @@ test('tickets can be deleted from the board after confirmation, including Done t
   await page.reload();
   await expect(card).toHaveCount(0);
   // Restore shared fixture state for subsequent review-space tests.
-  await request.post('http://127.0.0.1:3458/api/projects/fixture/tickets',{data:original});
-  await request.post('http://127.0.0.1:3458/api/tickets/ticket-1/update',{data:original});
+  await request.post(`${runtimeUrl}/api/projects/fixture/tickets`,{data:original});
+  await request.post(`${runtimeUrl}/api/tickets/ticket-1/update`,{data:original});
   await request.get('/api/gantry/api/status');
 });
 
 test('sidebar embeds Main and in-progress ticket previews, excluding backlog and Done', async ({page,request}) => {
-  const original=await (await request.get('http://127.0.0.1:3458/api/status')).json();
+  const original=await (await request.get(`${runtimeUrl}/api/status`)).json();
   const ticket={...original.tickets[0],projectId:'fixture',run:null,description:'',scope:'both',pullRequests:[],artifacts:[]};
   const preview={...original.previews[0],status:'Running',checkouts:[],isPrimary:false};
   const status={...original,tickets:[{...ticket,id:'active-preview',title:'codex/online-exam-runtime-implementation',branch:'ticket/runtime',status:'in_progress'},{...ticket,id:'done-preview',title:'Finished work',branch:'ticket/done',status:'done'},{...ticket,id:'backlog-preview',title:'Future work',branch:'ticket/future',status:'backlog'}],previews:[{...preview,id:'main-preview',branch:'__primary__',isPrimary:true},{...preview,id:'active-preview',branch:'ticket/runtime'}]};
   await page.route('http://127.0.0.1:6500/**',route=>route.fulfill({contentType:'text/html',body:'<h1>Embedded application</h1><label>Draft<input></label><a href="/next">Next page</a>'}));
   try {
-    await request.post('http://127.0.0.1:3458/__fixture',{data:{status}});
+    await request.post(`${runtimeUrl}/__fixture`,{data:{status}});
     await page.goto('/');
     const nav=page.getByRole('navigation',{name:'Previews',exact:true});
     await expect(nav.getByRole('button')).toHaveCount(2);
@@ -440,16 +442,16 @@ test('sidebar embeds Main and in-progress ticket previews, excluding backlog and
     await page.setViewportSize({width:1440,height:900});
     await page.screenshot({path:'e2e/.tmp/sidebar-preview-dark.png'});
     status.tickets[0].status='done';
-    await request.post('http://127.0.0.1:3458/__fixture',{data:{status}});
+    await request.post(`${runtimeUrl}/__fixture`,{data:{status}});
     await page.waitForTimeout(10500);
     await expect(nav.getByRole('button')).toHaveCount(1);
     await expect(page.getByRole('navigation',{name:'Gantry workspace'}).getByRole('button',{name:/Tickets/})).toHaveText('Tickets0');
     await expect(page.frameLocator('iframe[title="Main preview"]').getByRole('heading')).toBeVisible();
-  } finally {await request.post('http://127.0.0.1:3458/__fixture',{data:{status:null}});}
+  } finally {await request.post(`${runtimeUrl}/__fixture`,{data:{status:null}});}
 });
 
 test('preview developer tools capture console, errors, fetch and XHR without reloading the page', async ({page,request}) => {
-  const original=await (await request.get('http://127.0.0.1:3458/api/status')).json();
+  const original=await (await request.get(`${runtimeUrl}/api/status`)).json();
   const preview={...original.previews[0],id:'main-diagnostics',isPrimary:true,status:'Running',branch:'__primary__',checkouts:[]};
   preview.services=[...preview.services,{id:'backend',state:'ready',port:6501,openLink:'http://127.0.0.1:6501',logUrl:'/logs/preview/main-diagnostics/backend'}];
   await page.route('**/api/gantry/logs/preview/**', route => route.fulfill({contentType:'text/plain',body:route.request().url().endsWith('/backend') ? 'Backend service log' : 'Frontend service log'}));
@@ -472,7 +474,7 @@ test('preview developer tools capture console, errors, fetch and XHR without rel
     </script>`});
   });
   try {
-    await request.post('http://127.0.0.1:3458/__fixture',{data:{status:{...original,previews:[preview]}}});
+    await request.post(`${runtimeUrl}/__fixture`,{data:{status:{...original,previews:[preview]}}});
     await page.goto('/');
     await page.getByRole('navigation',{name:'Previews',exact:true}).getByRole('button',{name:'Main',exact:true}).click();
     const frame=page.frameLocator('iframe[title="Main preview"]');
@@ -545,5 +547,5 @@ test('preview developer tools capture console, errors, fetch and XHR without rel
     await panel.getByRole('button',{name:'Close developer tools'}).click();
     await expect(panel).toHaveCount(0);
     await expect(frame.getByLabel('Draft')).toHaveValue('keep this draft');
-  } finally {await request.post('http://127.0.0.1:3458/__fixture',{data:{status:null}});}
+  } finally {await request.post(`${runtimeUrl}/__fixture`,{data:{status:null}});}
 });

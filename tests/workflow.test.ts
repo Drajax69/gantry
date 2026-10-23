@@ -7,7 +7,7 @@ import { DEFAULT_WORKFLOW, exportWorkflow, importWorkflow, newWorkflow, readySte
 import { changeStep, replaceGraph, saveTicketWorkflow, ticketWorkflow } from '../packages/server/src/tickets/workflow.js';
 import { TicketStore } from '../packages/server/src/tickets/store.js';
 import { openDatabase } from '../packages/server/src/db/db.js';
-import { saveWorkspaceWorkflow, workspaceWorkflow, starterWorkflowYaml } from '../packages/server/src/projects/workflow.js';
+import { saveWorkspaceWorkflow, workspaceWorkflow, starterWorkflowYaml, saveWorkspaceWorkflowTemplate, workspaceWorkflowTemplates } from '../packages/server/src/projects/workflow.js';
 import { loadProject } from '../packages/server/src/projects/registry.js';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-workflow-test-'));
@@ -112,6 +112,32 @@ describe('workflow graph', () => {
     expect(reloaded.config.promptTemplates[0]!.body).toBe('Keep my instructions');
     expect(fs.readFileSync(project.configPath, 'utf8')).toContain('# Keep this comment');
   });
+
+  test('named templates persist without replacing the default or other templates', async () => {
+    const project = await loadProject(path.join(dir, 'workspace'));
+    const first = saveWorkspaceWorkflowTemplate(project, { name: 'Frontend work', graph: fork });
+    const second = saveWorkspaceWorkflowTemplate(project, { name: 'Full delivery', graph: DEFAULT_WORKFLOW });
+    const reloaded = await loadProject(project.workspace);
+
+    expect(workspaceWorkflowTemplates(reloaded).map(template => template.name)).toEqual(['Default', 'Frontend work', 'Full delivery']);
+    expect(workspaceWorkflow(reloaded, first.id)).toEqual(fork);
+    expect(workspaceWorkflow(reloaded)).toEqual(fork);
+    expect(() => workspaceWorkflow(reloaded, 'unknown')).toThrow(/not found/);
+    expect(() => workspaceWorkflow(reloaded, 7)).toThrow(/not found/);
+    expect(() => saveWorkspaceWorkflowTemplate(reloaded, { name: ' frontend WORK ', graph: fork })).toThrow(/Duplicate/);
+    expect(() => saveWorkspaceWorkflowTemplate(reloaded, { name: 'Default', graph: fork })).toThrow(/Duplicate/);
+    expect(() => saveWorkspaceWorkflowTemplate(reloaded, { name: ' ', graph: fork })).toThrow();
+    expect(() => saveWorkspaceWorkflowTemplate(reloaded, { name: 'Broken', graph: { nodes: [] } })).toThrow();
+    expect(() => saveWorkspaceWorkflowTemplate(reloaded, { name: 'Missing', graph: fork }, 'unknown')).toThrow(/not found/);
+
+    saveWorkspaceWorkflowTemplate(reloaded, { name: 'Frontend work', graph: DEFAULT_WORKFLOW }, first.id);
+    const updated = await loadProject(project.workspace);
+    expect(workspaceWorkflow(updated, first.id)).toEqual(DEFAULT_WORKFLOW);
+    expect(workspaceWorkflow(updated, second.id)).toEqual(DEFAULT_WORKFLOW);
+    expect(workspaceWorkflow(updated)).toEqual(fork);
+    expect(updated.config.promptTemplates[0]!.body).toBe('Keep my instructions');
+    expect(fs.readFileSync(project.configPath, 'utf8')).toContain('# Keep this comment');
+  });
 });
 
 test('HTTP graph contract copies templates, rejects stale updates and preserves ticket overrides', async () => {
@@ -135,6 +161,21 @@ test('HTTP graph contract copies templates, rejects stale updates and preserves 
     const id = create.json().id;
     const get = () => server.inject({ method: 'GET', url: `/api/tickets/${id}/workflow`, headers });
     expect((await get()).json().graph).toEqual(fork);
+    const templates = await server.inject({ method: 'GET', url: '/api/projects/test/workflow-templates', headers });
+    expect(templates.statusCode).toBe(200);
+    expect(templates.json()[0].id).toBe('default');
+    const added = await server.inject({ method: 'POST', url: '/api/projects/test/workflow-templates', headers, payload: { name: 'API template', graph: fork } });
+    expect(added.statusCode).toBe(201);
+    const templateId = added.json().id;
+    const selected = await server.inject({ method: 'POST', url: '/api/projects/test/tickets', headers, payload: { title: 'Selected template', workflowTemplateId: templateId } });
+    expect(selected.statusCode).toBe(201);
+    const selectedGraph = () => server.inject({ method: 'GET', url: `/api/tickets/${selected.json().id}/workflow`, headers });
+    expect((await selectedGraph()).json().graph).toEqual(fork);
+    const updated = await server.inject({ method: 'POST', url: `/api/projects/test/workflow-templates/${templateId}`, headers, payload: { name: 'API template', graph: DEFAULT_WORKFLOW } });
+    expect(updated.statusCode).toBe(200);
+    expect((await selectedGraph()).json().graph).toEqual(fork);
+    const invalidSelection = await server.inject({ method: 'POST', url: '/api/projects/test/tickets', headers, payload: { title: 'Invalid template', workflowTemplateId: 'missing' } });
+    expect(invalidSelection.statusCode).toBe(400);
     const saved = await server.inject({ method: 'POST', url: '/api/projects/test/workflow', headers, payload: DEFAULT_WORKFLOW });
     expect(saved.statusCode).toBe(200);
     expect((await get()).json().graph).toEqual(fork);
