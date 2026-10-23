@@ -11,6 +11,7 @@ export interface Attempt {
   summary: string;
   output: string;
   sessionId?: string;
+  sessionDirectory?: string;
   chatOpened?: boolean;
   chatVersion?: string;
   /** Latest stage-chat message (ms) already copied into the run's replies. */
@@ -59,6 +60,7 @@ export interface Execution {
   activeNodeId?: string;
   routing?: { nodeId: string; outcome: Outcome; summary: string };
   coordinatorSessionId?: string;
+  coordinatorSessionDirectory?: string;
   routes?: { edgeId: string | null; reason: string; at: number }[];
   replies?: { nodeId: string; message: string; at: number; source?: 'app' | 'chat' | 'choice' }[];
   /** The open question, if the run is waiting on a choice. */
@@ -68,7 +70,7 @@ export interface Execution {
   /** Pull requests reported by stages, newest last. */
   deliverables?: Deliverable[];
   /** A stage stopped because tools were refused; `alreadyAllowed` were allowed in Gantry yet still refused. */
-  blocked?: { nodeId: string; rules: string[]; alreadyAllowed: string[]; at: number };
+  blocked?: { nodeId: string; provider?: 'claude' | 'opencode'; rules: string[]; alreadyAllowed: string[]; at: number };
   /** What happened outside stage attempts and routes (pauses, retries, choices, blocks), newest last. */
   events?: RunEvent[];
   /** Recent review-loop snapshots, persisted with the execution rather than a transient retry note. */

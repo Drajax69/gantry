@@ -3,11 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HOME } from './exec';
 import { isValidRule } from './stage-permission-rules';
+import { parseOpenCodeRule } from '../opencode-permissions';
 
 /**
- * Tools a workspace's Claude stages may use without asking, chosen by the person in Gantry.
- * Passed to every Claude stage and stage chat as --allowedTools. Codex stages already run with
- * full access, so this list only affects Claude.
+ * Workspace grants chosen by the person in Gantry. Claude rules go to --allowedTools;
+ * provider-tagged OpenCode rules go to its inline permission config, never to Claude.
  */
 const FILE = path.join(HOME, 'stage-permissions.json');
 type Store = Record<string, { allow: string[] }>;
@@ -25,8 +25,8 @@ function write(store: Store) {
   fs.renameSync(`${FILE}.tmp`, FILE);
 }
 
-export function allowedTools(projectId: string): string[] {
-  return (read()[projectId]?.allow ?? []).filter(isValidRule);
+export function allowedTools(projectId: string, provider: 'claude' | 'opencode' = 'claude'): string[] {
+  return (read()[projectId]?.allow ?? []).filter(r => isValidRule(r) && (!!parseOpenCodeRule(r) === (provider === 'opencode')));
 }
 
 /** Add and remove rules; returns the new list. Invalid rules are refused rather than dropped silently. */

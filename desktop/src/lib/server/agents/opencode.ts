@@ -1,7 +1,10 @@
 import 'server-only';
+import path from 'node:path';
 import { CLI } from './store';
 import { cliOutcome, runCli, toolDetail, transcript, type Driver } from './driver';
 import { resolveOpenCodeModel } from './opencode-models';
+import { scopedSessionId } from './session-scope';
+import { openCodePermissionRequest, parseOpenCodeRule } from '../../opencode-permissions';
 
 /** The parts of `opencode run --format json` lines we read. */
 interface OpenCodeLine {
@@ -12,7 +15,7 @@ interface OpenCodeLine {
     text?: string;
     tool?: string;
     cost?: number;
-    state?: { status?: string; input?: Record<string, unknown> };
+    state?: { status?: string; input?: Record<string, unknown>; error?: string };
   };
 }
 
@@ -23,8 +26,16 @@ const REVIEW_SHELL = ['git diff', 'git log', 'git show', 'git blame', 'git grep'
  * Permissions for one run, passed as inline config so they sit above your own OpenCode config.
  * The catch-all deny also refuses MCP tools and anything else not listed.
  */
-function permission(mode: 'review' | 'coordinator' | 'workflow') {
-  if (mode === 'workflow') return undefined;
+function permission(mode: 'review' | 'coordinator' | 'workflow', directories: string[], grants: string[]) {
+  if (mode === 'workflow') {
+    const rules: Record<string, Record<string, string>> = Object.create(null);
+    rules.external_directory = Object.fromEntries(directories.map((dir) => [`${path.resolve(dir).replaceAll('\\', '/').replace(/\/$/, '')}/*`, 'allow']));
+    for (const rule of grants) {
+      const grant = parseOpenCodeRule(rule);
+      if (grant) (rules[grant.permission] ??= Object.create(null))[grant.pattern] = 'allow';
+    }
+    return rules;
+  }
   if (mode === 'coordinator') return { '*': 'deny' };
   return {
     '*': 'deny',
@@ -37,7 +48,8 @@ function permission(mode: 'review' | 'coordinator' | 'workflow') {
   };
 }
 
-export const opencode: Driver = async ({ agent, cwd, system, prompt, sessionId, history, hooks, signal, workflow, coordinator }) => {
+export const opencode: Driver = async ({ agent, cwd, system, prompt, sessionId: previousSession, sessionDirectory, history, hooks, signal, workflow, coordinator }) => {
+  const sessionId = scopedSessionId('opencode', previousSession, sessionDirectory, cwd);
   let model: string;
   try {
     model = await resolveOpenCodeModel(agent.model || '', cwd);
@@ -53,7 +65,9 @@ export const opencode: Driver = async ({ agent, cwd, system, prompt, sessionId, 
     hooks.error(`${detail} OpenCode logs: ~/.local/share/opencode/log (or $XDG_DATA_HOME/opencode/log).`);
   } };
   const mode = coordinator ? 'coordinator' : workflow ? 'workflow' : 'review';
-  const args = ['run', '--format', 'json'];
+  // OpenCode also resolves its project from PWD. An Electron process can inherit
+  // Gantry's launch directory even when spawn's cwd is the review checkout.
+  const args = ['run', '--format', 'json', '--dir', cwd, '--print-logs', '--log-level', 'INFO'];
   // A workflow stage works unattended, like Claude's --dangerously-skip-permissions; your OpenCode deny rules still hold.
   if (mode === 'workflow') args.push('--auto');
   // OpenCode calls reasoning effort a model variant; Gantry's top level, ultra, runs as max.
@@ -62,7 +76,8 @@ export const opencode: Driver = async ({ agent, cwd, system, prompt, sessionId, 
   if (sessionId) args.push('--session', sessionId);
   // OpenCode has no flag for extra system instructions, so each message carries them, as with Codex.
   const stdin = sessionId ? `${system}\n\n${prompt}` : `${system}\n\n${transcript(history)}${prompt}`;
-  const rules = permission(mode);
+  const rules = permission(mode, [cwd, ...(workflow?.workspace ? [workflow.workspace] : []), ...(workflow?.addDirs ?? [])], workflow?.allowedTools ?? []);
+  const blocked = new AbortController();
 
   let wrote = false;
   let failed = false;
@@ -70,10 +85,21 @@ export const opencode: Driver = async ({ agent, cwd, system, prompt, sessionId, 
   let reported = false;
   const r = await runCli(CLI.opencode, args, {
     cwd,
-    signal,
+    signal: AbortSignal.any([signal, blocked.signal]),
     processGroup: !!workflow || !!coordinator,
     stdin,
-    env: rules ? { OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: rules }) } : undefined,
+    env: { PWD: cwd, ...(rules ? { OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: rules }) } : {}) },
+    // OpenCode 1.19 emits permission waits to its logger, not JSON stdout.
+    // Stop an unattended wait so the executor records a visible waiting/error state.
+    onStderrLine(line) {
+      if (!/\bmessage=asking\b/.test(line) || !/\bpermission=/.test(line) || blocked.signal.aborted) return;
+      const permission = /\bpermission=(\S+)/.exec(line)?.[1] ?? 'unknown';
+      const request = openCodePermissionRequest(line);
+      if (request) hooks.denied?.(request.patterns.map(pattern => ({ provider: 'opencode', tool_name: request.permission, tool_input: { pattern } })));
+      failed = true;
+      diagnosticHooks.error(`OpenCode is blocked awaiting ${permission} permission. Check the stage's workspace access or OpenCode permission rules, then retry. Request: ${line.slice(-2000)}`);
+      blocked.abort();
+    },
     onLine(line) {
       let ev: OpenCodeLine;
       try {
@@ -90,7 +116,9 @@ export const opencode: Driver = async ({ agent, cwd, system, prompt, sessionId, 
         hooks.text((wrote ? '\n\n' : '') + ev.part.text);
         wrote = true;
       } else if (ev.type === 'tool_use' && ev.part?.tool) {
-        hooks.tool({ name: ev.part.tool, detail: toolDetail(ev.part.state?.input) });
+        const state = ev.part.state;
+        const detail = [toolDetail(state?.input), state?.status === 'error' ? `Failed: ${state.error || 'Tool call failed'}` : ''].filter(Boolean).join(' · ');
+        hooks.tool({ name: ev.part.tool, detail });
       } else if (ev.type === 'step_finish' && typeof ev.part?.cost === 'number') {
         cost += ev.part.cost;
         if (cost > 0) hooks.cost(cost);
@@ -100,5 +128,8 @@ export const opencode: Driver = async ({ agent, cwd, system, prompt, sessionId, 
       }
     },
   });
-  cliOutcome('OpenCode', CLI.opencode, r, diagnosticHooks, failed);
+  if (!blocked.signal.aborted) cliOutcome('OpenCode', CLI.opencode, r, diagnosticHooks, failed);
+  if (!blocked.signal.aborted && !failed && !r.stopped && r.code === 0 && !wrote) {
+    diagnosticHooks.error('OpenCode exited without returning an answer. Its session output may not have reached Gantry; retry the stage or chat.');
+  }
 };

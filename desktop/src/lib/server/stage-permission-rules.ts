@@ -1,5 +1,8 @@
-/** A tool call Claude Code refused in a non-interactive stage (`permission_denials` in its result). */
+import { openCodeRule, parseOpenCodeRule } from '../opencode-permissions';
+
+/** A provider permission refusal, kept distinct from another provider's rules. */
 export interface Denial {
+  provider?: 'opencode';
   tool_name: string;
   tool_input?: Record<string, unknown>;
 }
@@ -23,12 +26,14 @@ export const COMMON_RULES = [
 ];
 
 const RULE = /^[A-Za-z][\w-]*(\([^()\n]{1,200}\))?$/;
-export const isValidRule = (rule: string) => RULE.test(rule) && rule.length <= 220;
+export const isValidRule = (rule: string) => rule.startsWith('OpenCode(')
+  ? !!parseOpenCodeRule(rule) : RULE.test(rule) && rule.length <= 220;
 
 /** The narrowest sensible allow rule for a refused call, in Claude Code's permission rule syntax. */
 export function ruleFor(denial: Denial): string {
   const tool = denial.tool_name;
   const input = denial.tool_input ?? {};
+  if (denial.provider === 'opencode' && typeof input.pattern === 'string') return openCodeRule(tool, input.pattern);
   if (tool.startsWith('mcp__')) {
     const server = tool.split('__')[1];
     return server ? `mcp__${server}` : tool;

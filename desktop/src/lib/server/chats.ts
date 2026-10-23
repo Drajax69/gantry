@@ -6,6 +6,7 @@ import type { Anchor, Quote, ChatEvent, ChatMessage, PrState, RecentItem, Target
 import { DIRS, safeName } from "./exec";
 import type { PreparedTarget } from "./targets";
 import { drivers, getAgent, type Turn } from "./agents";
+import { scopedSessionId } from './agents/session-scope';
 
 /** Persisted per target: the conversation plus each agent's session for it. */
 interface ChatFile {
@@ -15,7 +16,7 @@ interface ChatFile {
   updatedAt: number;
   /** Per agent id: the session it continues, and what that session has cost so far
    *  (claude reports a running total across resumes). */
-  sessions?: Record<string, { id: string | null; costUsd?: number }>;
+  sessions?: Record<string, { id: string | null; costUsd?: number; directory?: string }>;
   /** Before agents were pluggable there was one Claude session. */
   sessionId?: string | null;
   sessionCostUsd?: number;
@@ -162,6 +163,7 @@ function systemPrompt(t: PreparedTarget): string {
       : info.kind === "local"
       ? `You are helping someone review what a Gantry ticket produced in its ${info.repo} worktree (often documents, such as a plan, rather than code). The working directory is that worktree, at ${info.headSha}.`
       : `You are helping someone review code in ${info.owner}/${info.repo}. The working directory is an editable local checkout initially based at ${info.headSha}.`,
+    `Local checkout: ${t.worktree}. Read and edit the files in this checkout.`,
     diffHint,
     "",
     t.description,
@@ -264,7 +266,10 @@ function answer(t: PreparedTarget, user: ChatMessage, agentId?: string) {
   emit(id, { type: "start", msg });
 
   const prev = chat.sessions?.[agent.id];
-  let sessionId = prev?.id ?? null;
+  // Older OpenCode sessions could be rooted in Gantry's launch directory via
+  // inherited PWD. Start a correctly scoped session once, carrying chat history
+  // into it, rather than continuing to deny access to the actual PR checkout.
+  let sessionId = scopedSessionId(agent.kind, prev?.id, prev?.directory, t.worktree);
   let totalCost: number | null = null;
   const timer = setTimeout(() => abort.abort(), RUN_TIMEOUT_MS);
 
@@ -274,6 +279,7 @@ function answer(t: PreparedTarget, user: ChatMessage, agentId?: string) {
     system: systemPrompt(t),
     prompt: promptFor(user.text, anchor, user.quote),
     sessionId,
+    sessionDirectory: prev?.directory,
     history,
     signal: abort.signal,
     hooks: {
@@ -305,7 +311,7 @@ function answer(t: PreparedTarget, user: ChatMessage, agentId?: string) {
       const latest = loadChat(id) ?? chat;
       const sessions = (latest.sessions ??= {});
       const before = sessions[agent.id];
-      const entry = { id: sessionId, costUsd: before?.costUsd };
+      const entry = { id: sessionId, costUsd: sessionId === before?.id ? before?.costUsd : undefined, directory: t.worktree };
       if (totalCost !== null) {
         const spent = sessionId === before?.id ? (before?.costUsd ?? 0) : 0;
         msg.costUsd = Math.max(0, totalCost - spent);

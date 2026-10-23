@@ -12,8 +12,8 @@ export interface RunHooks {
   /** Cost of the whole session so far, when the agent reports one. */
   cost(totalUsd: number): void;
   error(message: string): void;
-  /** Tool calls the agent's own permission system refused (Claude Code `permission_denials`). */
-  denied?(denials: { tool_name: string; tool_input?: Record<string, unknown> }[]): void;
+  /** Tool calls refused or awaiting approval in the provider's permission system. */
+  denied?(denials: { provider?: 'opencode'; tool_name: string; tool_input?: Record<string, unknown> }[]): void;
 }
 
 export interface Turn {
@@ -26,9 +26,11 @@ export interface RunInput {
   /** Explicit autonomous ticket execution; review-chat defaults remain unchanged. */
   coordinator?: boolean;
   workflow?: {
+    /** Root containing gantry.yaml, authorized along with the ticket checkouts. */
+    workspace?: string;
     reasoningEffort?: string;
     addDirs: string[];
-    /** Workspace allow rules chosen in Gantry (Claude --allowedTools). */
+    /** Workspace allow rules for this provider (Claude --allowedTools or tagged OpenCode grants). */
     allowedTools?: string[];
     /** Extra MCP servers for this stage (Claude --mcp-config file). */
     mcpConfig?: string;
@@ -41,6 +43,8 @@ export interface RunInput {
   prompt: string;
   /** The session this agent had for this chat, if any. */
   sessionId: string | null;
+  /** Checkout recorded when this provider session was created (not the current launch directory). */
+  sessionDirectory?: string;
   /** Earlier questions and answers in this chat, for agents without a session to resume. */
   history: Turn[];
   hooks: RunHooks;
@@ -54,7 +58,7 @@ export type Driver = (input: RunInput) => Promise<void>;
 export function runCli(
   cmd: string,
   args: string[],
-  opts: { cwd: string; stdin: string; signal: AbortSignal; onLine: (line: string) => void; processGroup?: boolean; env?: Record<string, string> },
+  opts: { cwd: string; stdin: string; signal: AbortSignal; onLine: (line: string) => void; onStderrLine?: (line: string) => void; processGroup?: boolean; env?: Record<string, string> },
 ): Promise<{ code: number | null; stopped: boolean; killed?: string; stderr: string; spawnError?: Error }> {
   return new Promise((resolve) => {
     const child = spawn(/*turbopackIgnore: true*/ cmd, args, {
@@ -99,6 +103,7 @@ export function runCli(
     child.stdin.end(opts.stdin);
     let buf = '';
     let stderr = '';
+    let stderrBuf = '';
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       buf += chunk;
@@ -111,6 +116,15 @@ export function runCli(
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
       stderr = (stderr + chunk).slice(-4000);
+      if (opts.onStderrLine) {
+        stderrBuf += chunk;
+        let nl;
+        while ((nl = stderrBuf.indexOf('\n')) >= 0) {
+          opts.onStderrLine(stderrBuf.slice(0, nl));
+          stderrBuf = stderrBuf.slice(nl + 1);
+        }
+        stderrBuf = stderrBuf.slice(-16000);
+      }
     });
     let done = false;
     child.on('error', (err) => {
@@ -125,6 +139,7 @@ export function runCli(
       if (opts.signal.aborted) terminateGroup(true);
       cleanup();
       if (buf.trim()) opts.onLine(buf);
+      if (stderrBuf.trim()) opts.onStderrLine?.(stderrBuf);
       // Only our own abort counts as stopped; a signal from anywhere else is a crash worth explaining.
       resolve({ code, stopped: opts.signal.aborted, ...(signal && !opts.signal.aborted ? { killed: signal } : {}), stderr });
     });
