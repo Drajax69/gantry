@@ -60,7 +60,13 @@ export function GraphStatus({ run, execution }: { run?: WorkflowRun | null; exec
 }
 
 /** Layers make forks and joins visible; arbitrary labels never become SVG markup. */
-function Graph({ graph, run, selected, onSelect }: { graph: Workflow; run?: WorkflowRun | null; selected: string; onSelect: (id: string) => void }) {
+export function Graph({ graph, run, selected, onSelect, compact = false }: {
+  graph: Workflow;
+  run?: WorkflowRun | null;
+  selected: string;
+  onSelect: (id: string) => void;
+  compact?: boolean;
+}) {
   const viewport = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
   const [fitView, setFitView] = useState(true);
@@ -101,7 +107,7 @@ function Graph({ graph, run, selected, onSelect }: { graph: Workflow; run?: Work
         <Button size="icon-sm" variant="ghost" aria-label="Zoom in graph" onClick={() => { setFitView(false); setZoom(z => Math.min(2, z + .15)); }}><PlusIcon /></Button>
         <Button size="sm" variant="ghost" onClick={() => setFitView(true)}><MaximizeIcon />Fit</Button>
       </div>
-      <div ref={viewport} className="h-[min(38dvh,360px)] min-h-64 xl:h-[min(56dvh,620px)] overflow-auto p-4" aria-label="Workflow graph">
+      <div ref={viewport} className={`${compact ? 'h-[min(32dvh,280px)] min-h-48' : 'h-[min(38dvh,360px)] min-h-64 xl:h-[min(56dvh,620px)]'} overflow-auto p-4`} aria-label="Workflow graph">
       <div style={{ width: width * zoom, height: height * zoom }}>
       <div className="relative origin-top-left" style={{ width, height, transform: `scale(${zoom})` }}>
         <svg aria-hidden="true" className="absolute inset-0 text-muted-foreground" width={width} height={height}>

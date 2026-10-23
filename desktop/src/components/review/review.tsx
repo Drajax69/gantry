@@ -23,6 +23,7 @@ import { ChatPanel, type ChatPanelHandle } from "./chat-panel";
 
 import { MergeDialog } from "./merge-dialog";
 import { PublishDialog } from "./publish-dialog";
+import { ReviewLoop } from "./review-loop";
 
 type Mode = "diff" | "full";
 
@@ -39,11 +40,12 @@ interface Props {
   initialFile: string | null;
   /** Inside a space: the space draws the chrome and owns the URL. */
   embedded?: boolean;
+  spaceId?: string;
   onFileChange?: (file: string) => void;
   onActivity?: (a: ReviewActivity) => void;
 }
 
-export function Review({ id, initialFile, embedded = false, onFileChange, onActivity }: Props) {
+export function Review({ id, initialFile, embedded = false, spaceId, onFileChange, onActivity }: Props) {
   const router = useRouter();
   const [source, setSource] = useState<"pr" | "local">("pr");
   const [local, setLocal] = useState<LocalChanges | null>(null);
@@ -359,6 +361,7 @@ export function Review({ id, initialFile, embedded = false, onFileChange, onActi
           </div>
         </div>
         <AgentPicker />
+        {isPull && <ReviewLoop targetId={id} spaceId={spaceId} />}
         <Button
           variant={sideOpen ? "secondary" : "ghost"}
           size="sm"

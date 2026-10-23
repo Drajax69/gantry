@@ -339,6 +339,7 @@ export function Workspace({ spaceId, initialTarget, initialFile, onNavigateSpace
           .map((t) => (
             <TabPanel
               key={t}
+              spaceId={spaceId}
               target={t}
               visible={t === active}
               initialFile={startFiles[t] ?? null}
@@ -353,12 +354,14 @@ export function Workspace({ spaceId, initialTarget, initialFile, onNavigateSpace
 
 /** Tabs stay mounted while hidden so switching back keeps the file, selection and draft. */
 const TabPanel = memo(function TabPanel({
+  spaceId,
   target,
   visible,
   initialFile,
   onFile,
   onActivity,
 }: {
+  spaceId: string;
   target: string;
   visible: boolean;
   initialFile: string | null;
@@ -369,7 +372,7 @@ const TabPanel = memo(function TabPanel({
   const handleActivity = useCallback((a: ReviewActivity) => onActivity(target, a), [onActivity, target]);
   return (
     <div role="tabpanel" aria-label={target} hidden={!visible} className="absolute inset-0 flex flex-col">
-      <Review id={target} initialFile={initialFile} embedded onFileChange={handleFile} onActivity={handleActivity} />
+      <Review id={target} initialFile={initialFile} embedded spaceId={spaceId} onFileChange={handleFile} onActivity={handleActivity} />
     </div>
   );
 });

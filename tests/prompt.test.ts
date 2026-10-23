@@ -218,7 +218,7 @@ describe('repositoryPath', () => {
   });
 });
 
-test('ticket graph instructions use the snapshot and include progress reporting', async () => {
+test('ticket graph instructions use the snapshot and preserve coordinator routing', async () => {
   const { newWorkflow } = await import('../packages/shared/src/workflow.js');
   const proj = project();
   proj.config.project.defaultPromptTemplate = 'builtin:default';
@@ -228,10 +228,21 @@ test('ticket graph instructions use the snapshot and include progress reporting'
   const vars = buildPromptVars(proj, owner, { artifactDir: '/art', previewUrl: null, urls: {}, paths: {} });
   const result = renderPrompt(proj, owner, vars, { ticket: owner, project: proj, instructionFiles: [], agentNotes: '', workflowPort: 4598 });
   assert.match(result.prompt, /Ticket-specific plan/);
-  assert.match(result.prompt, /after: plan/);
-  assert.match(result.prompt, /gantry workflow 00000000-0000-4000-8000-000000000001/);
-  assert.match(result.prompt, /delegated in parallel/);
-  assert.match(result.prompt, /http:\/\/127.0.0.1:4598\/api\/tickets\//);
+  const snapshot = result.prompt.split("Ticket workflow (this ticket's independent graph):\n")[1]?.split('\n')[0];
+  assert.ok(snapshot, 'The prompt includes a serialized ticket graph.');
+  assert.deepEqual(JSON.parse(snapshot), {
+    entryNodeId: workflow.graph.entryNodeId,
+    nodes: workflow.graph.nodes.map(({ id, label, instructions }) => ({
+      id,
+      label,
+      instructions,
+      state: workflow.states[id]?.state,
+    })),
+    edges: workflow.graph.edges,
+  });
+  assert.match(result.prompt, /Gantry's coordinator chooses the next stage/);
+  assert.match(result.prompt, /Do not independently dispatch stages or update workflow state/);
+  assert.match(result.prompt, /provide clear handovers with outcomes and evidence/);
 });
 
 

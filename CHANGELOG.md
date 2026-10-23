@@ -20,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Restart a ticket graph from a chosen stage directly in PR review, carrying refreshed GitHub feedback and local review discussion into the correction loop.
+
 - Show cached pull request status icons on desktop ticket cards, graph nodes and ticket details.
 
 - Export workspace graphs as JSON and import them into another workspace for review before saving.
