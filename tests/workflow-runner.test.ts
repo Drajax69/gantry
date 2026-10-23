@@ -5,7 +5,15 @@ const mocks = await vi.hoisted(async () => {
   const fs = await import('node:fs'),
     os = await import('node:os'),
     path = await import('node:path');
-  return { home: fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-runner-test-')), driver: vi.fn(), context: vi.fn(), conversation: vi.fn(), provider: vi.fn() };
+  return {
+    home: fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-runner-test-')),
+    driver: vi.fn(),
+    context: vi.fn(),
+    conversation: vi.fn(),
+    provider: vi.fn(),
+    comments: vi.fn(),
+    pending: vi.fn(),
+  };
 });
 vi.mock('server-only', () => ({}));
 vi.mock('../desktop/src/lib/server/exec', () => ({
@@ -20,6 +28,12 @@ vi.mock('../desktop/src/lib/server/agents', () => ({
 }));
 vi.mock('../desktop/src/lib/server/ticket-chat', () => ({ ticketContext: mocks.context }));
 vi.mock('../desktop/src/lib/server/ticket-conversations', () => ({ conversationFor: mocks.conversation, openWorkflowConversation: vi.fn() }));
+vi.mock('../desktop/src/lib/server/spaces', () => ({
+  listSpaces: () => ({ spaces: [{ id: 'review', targets: ['acme/app/pull/1'], gantry: { ticketId: 'test', projectId: 'project', workspace: mocks.home } }] }),
+}));
+vi.mock('../desktop/src/lib/server/comments', () => ({ getComments: mocks.comments }));
+vi.mock('../desktop/src/lib/server/chats', () => ({ loadChat: () => ({ messages: [] }), pendingFor: mocks.pending, queuedFor: () => [] }));
+vi.mock('../desktop/src/lib/server/stage-sessions', () => ({ sessionOpenInTerminal: async () => false }));
 import { controlExecution, executionFor, tick } from '../desktop/src/lib/server/workflow-executor';
 import { newWorkflow, type Workflow } from '../packages/shared/src/workflow';
 const graph: Workflow = {
@@ -48,6 +62,8 @@ beforeEach(async () => {
   add();
   mocks.driver.mockReset();
   mocks.conversation.mockReset();
+  mocks.comments.mockReset().mockResolvedValue({ threads: [], general: [] });
+  mocks.pending.mockReset().mockReturnValue(null);
   mocks.provider.mockImplementation((id) => ({ id, kind: 'codex', model: 'default' }));
   mocks.context.mockImplementation(async (id) => ({
     ticket: { ...tickets.get(id), title: 'Fixture', description: 'Ticket instructions', branch: 'ticket-branch' },
@@ -95,6 +111,32 @@ test('runs node-specific models with separate chats and passes handovers automat
   expect(b.sessionId).toBeNull();
   expect(b.prompt).toContain('Validated locally');
   expect(b.system).toContain('Workspace conventions');
+});
+test('review restart persists refreshed feedback and rejects duplicates and failed refreshes without mutation', async () => {
+  await controlExecution('test', 'start');
+  await vi.waitFor(() => expect(executionFor('test')?.steps.plan).toBe('done'));
+  await settled();
+  await tick();
+  await settled();
+  const before = executionFor('test')!;
+  const request = { targetId: 'acme/app/pull/1', spaceId: 'review', expectedUpdatedAt: before.updatedAt, confirm: true };
+  mocks.comments.mockResolvedValueOnce({ threads: [], general: [], error: 'Offline' });
+  await expect(controlExecution('test', 'review-restart', 'build', 'Fix comments', undefined, undefined, request)).rejects.toThrow(
+    'Could not refresh PR feedback',
+  );
+  expect(executionFor('test')).toEqual(before);
+  mocks.pending.mockReturnValueOnce({ id: 'active' });
+  await expect(controlExecution('test', 'review-restart', 'build', '', undefined, undefined, request)).rejects.toThrow('agents to finish');
+  expect(executionFor('test')).toEqual(before);
+  await controlExecution('test', 'review-restart', 'build', 'Fix comments', undefined, undefined, request);
+  await settled();
+  await vi.waitFor(() => expect(executionFor('test')?.attempts.length).toBe(3));
+  await settled();
+  expect(executionFor('test')?.reviewFeedback?.[0].note).toBe('Fix comments');
+  expect(mocks.comments).toHaveBeenLastCalledWith('acme/app/pull/1', true);
+  expect(mocks.driver.mock.calls.at(-1)![0].prompt).toContain('Fix comments');
+  await expect(controlExecution('test', 'review-restart', 'build', '', undefined, undefined, request)).rejects.toThrow('workflow changed');
+  expect(executionFor('test')?.attempts.length).toBe(3);
 });
 test('pausing aborts active work and cannot dispatch its dependent stage', async () => {
   mocks.driver.mockImplementation((input) => new Promise<void>((resolve) => input.signal.addEventListener('abort', () => resolve(), { once: true })));
