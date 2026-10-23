@@ -14,7 +14,7 @@ vi.mock('../desktop/src/lib/server/exec', () => ({
   withLock: (_: string, fn: () => unknown) => fn(),
 }));
 vi.mock('../desktop/src/lib/server/agents', () => ({
-  drivers: { codex: mocks.driver, claude: mocks.driver, openai: mocks.driver },
+  drivers: { codex: mocks.driver, claude: mocks.driver, openai: mocks.driver, opencode: mocks.driver },
   findAgent: mocks.provider,
   getAgent: () => ({ id: 'codex', kind: 'codex', model: 'default' }),
 }));
@@ -159,6 +159,31 @@ test('workspace-exclusive stages wait while another ticket is writing', async ()
   await settled();
   expect(executionFor('second')?.state).toBe('complete');
 });
+
+test.each(['opencode', 'claude', 'codex'].flatMap(kind =>
+  [undefined, '/path/to/wrong-checkout', 'correct'].map(directory => ({ kind, directory }))))(
+  '$kind retry with recorded directory $directory scopes only OpenCode sessions',
+  async ({ kind, directory }) => {
+    mocks.provider.mockImplementation((id) => ({ id, kind, model: 'default' }));
+    const sessionDirectory = directory === 'correct' ? mocks.home : directory;
+    fs.writeFileSync(path.join(mocks.home, 'workflow-runs/test.json'), JSON.stringify({
+      ticketId: 'test', projectId: 'project', graph, state: 'waiting',
+      steps: { plan: 'failed', build: 'pending' }, defaultProviderId: kind, updatedAt: 0, message: '',
+      attempts: [{ id: 'old', nodeId: 'plan', startedAt: 1, endedAt: 2, state: 'failed',
+        summary: 'Previous attempt', output: 'Existing changes were validated.',
+        providerId: kind, providerKind: kind, model: 'strong', commits: {},
+        sessionId: 'ses_old', sessionDirectory }],
+    }));
+    await controlExecution('test', 'retry', 'plan');
+    await vi.waitFor(() => expect(executionFor('test')?.steps.plan).toBe('done'));
+    await settled();
+    const request = mocks.driver.mock.calls[0][0];
+    expect(request.sessionId).toBe(kind !== 'opencode' || directory === 'correct' ? 'ses_old' : null);
+    expect(request.history).toEqual(kind === 'opencode' ? [{ role: 'assistant', text: 'Existing changes were validated.' }] : []);
+    expect(request.workflow.workspace).toBe(mocks.home);
+    expect(executionFor('test')?.attempts.at(-1)?.sessionDirectory).toBe(mocks.home);
+  },
+);
 test('does not auto-start an existing external conversation', async () => {
   add('test', { ...graph, autoStart: true });
   mocks.conversation.mockReturnValue({ sessionId: 'external' });

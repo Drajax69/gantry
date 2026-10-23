@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- Apply checkout-scoped OpenCode session migration to workflow stages and coordinators as well as review chats. Legacy or mismatched sessions start fresh with available context preserved; empty CLI responses produce explicit errors.
+- Authorize OpenCode workflow runs for the configured workspace and ticket checkouts, including resumed sessions. Surface CLI permission waits as actionable stage failures instead of silently remaining running.
+- Bind OpenCode review runs to the PR checkout instead of an inherited launch directory. Older incorrectly scoped review sessions are refreshed with their chat history preserved, and failed tool calls now display their error details.
 - Resolve legacy bare OpenCode model names automatically from the workspace's model catalog for stage runs and chats. Unknown or ambiguous models now explain how to select a valid model; upstream errors identify the model, session and OpenCode log location, and model-list failures are visible in the dropdown editor.
 
 ### Changed

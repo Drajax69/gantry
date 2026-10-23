@@ -7,6 +7,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import net from 'node:net';
 import { HOME, git, withLock } from './exec';
 import { drivers, findAgent, getAgent } from './agents';
+import { scopedSessionId } from './agents/session-scope';
 import { ticketContext } from './ticket-chat';
 import { conversationFor, openWorkflowConversation, readWorkflowConversation } from './ticket-conversations';
 import { nextNode, parseOutcome, finishAttempt, resetFrom, applyRoute, followEdge, logEvent, type Execution, type Attempt } from './workflow-state';
@@ -394,7 +395,8 @@ async function routeHandover(run: Execution, cwd: string, signal: AbortSignal, t
   await drivers[provider.kind]({
     agent: provider,
     cwd,
-    sessionId: run.coordinatorSessionId ?? null,
+    sessionId: scopedSessionId(provider.kind, run.coordinatorSessionId, run.coordinatorSessionDirectory, cwd),
+    sessionDirectory: run.coordinatorSessionDirectory,
     history: [],
     coordinator: true,
     signal: AbortSignal.any([signal, AbortSignal.timeout(120000)]),
@@ -409,6 +411,7 @@ async function routeHandover(run: Execution, cwd: string, signal: AbortSignal, t
       },
       session(id) {
         run.coordinatorSessionId = id;
+        run.coordinatorSessionDirectory = cwd;
         save(run);
       },
       cost() {},
@@ -451,9 +454,10 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
     if (!configured) throw new Error('The configured provider was removed.');
     const agent = { ...configured, model: node.model || configured.model };
     const prior = [...run.attempts].reverse().find((a) => a.nodeId === node.id && a.providerId === agent.id && a.model === agent.model && a.sessionId);
-    const sessionId = node.freshSession ? null : (prior?.sessionId ?? null);
+    const sessionId = node.freshSession ? null : scopedSessionId(agent.kind, prior?.sessionId, prior?.sessionDirectory, cwd);
     // Never run the headless stage while its chat is still open in herdr: two writers, one conversation.
-    if (sessionId && agent.kind !== 'openai' && (await sessionOpenInTerminal(sessionId))) {
+    const openSession = agent.kind === 'opencode' ? prior?.sessionId : sessionId;
+    if (openSession && agent.kind !== 'openai' && (await sessionOpenInTerminal(openSession))) {
       run.steps[node.id] = 'pending';
       run.state = 'waiting';
       run.message = `The ${node.label} chat is still open in herdr. Finish there and exit it, then Resume. Gantry picks up what you did in the chat.`;
@@ -473,8 +477,8 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
       providerKind: agent.kind,
       model: agent.model,
       commits: await heads(work.checkouts),
-      chatOpened: prior?.chatOpened,
-      ...(sessionId ? { sessionId } : {}),
+      chatOpened: agent.kind === 'opencode' && !sessionId ? undefined : prior?.chatOpened,
+      ...(sessionId ? { sessionId, sessionDirectory: prior?.sessionDirectory } : {}),
     };
     if (prior) prior.chatOpened = false;
     const coordinatorNote = run.message;
@@ -510,8 +514,9 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
       system,
       prompt,
       sessionId,
-      history: [],
-      workflow: { reasoningEffort: node.reasoningEffort, addDirs: work.checkouts.map((c) => c.path), allowedTools: allowed, mcpConfig, settings: stageSettingsFile(work.project.workspace) },
+      sessionDirectory: prior?.sessionDirectory,
+      history: agent.kind === 'opencode' && !node.freshSession && prior?.output ? [{ role: 'assistant', text: prior.output }] : [],
+      workflow: { workspace: work.project.workspace, reasoningEffort: node.reasoningEffort, addDirs: work.checkouts.map((c) => c.path), allowedTools: allowed, mcpConfig, settings: stageSettingsFile(work.project.workspace) },
       signal: controller.signal,
       hooks: {
         text(text) {
@@ -524,6 +529,7 @@ async function runStage(run: Execution, node: Execution['graph']['nodes'][number
         tool() {},
         session(id) {
           attempt!.sessionId = id;
+          attempt!.sessionDirectory = cwd;
           save(run);
         },
         cost() {},

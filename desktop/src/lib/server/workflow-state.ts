@@ -10,6 +10,7 @@ export interface Attempt {
   summary: string;
   output: string;
   sessionId?: string;
+  sessionDirectory?: string;
   chatOpened?: boolean;
   chatVersion?: string;
   /** Latest stage-chat message (ms) already copied into the run's replies. */
@@ -58,6 +59,7 @@ export interface Execution {
   activeNodeId?: string;
   routing?: { nodeId: string; outcome: Outcome; summary: string };
   coordinatorSessionId?: string;
+  coordinatorSessionDirectory?: string;
   routes?: { edgeId: string | null; reason: string; at: number }[];
   replies?: { nodeId: string; message: string; at: number; source?: 'app' | 'chat' | 'choice' }[];
   /** The open question, if the run is waiting on a choice. */
